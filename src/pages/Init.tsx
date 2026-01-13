@@ -23,6 +23,18 @@ interface ApiError {
     error: string;
 }
 
+interface InitPrefillResponse {
+    locked: boolean;
+    database_type?: string;
+    database_host?: string;
+    database_port?: number;
+    database_user?: string;
+    database_name?: string;
+    database_ssl_mode?: string;
+    database_path?: string;
+    database_password_set?: boolean;
+}
+
 interface DropdownOption {
     value: string;
     label: string;
@@ -110,6 +122,7 @@ export function Init() {
     const { t } = useTranslation();
     const [showPassword, setShowPassword] = useState(false);
     const [showDbPassword, setShowDbPassword] = useState(false);
+    const [dbLocked, setDbLocked] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
@@ -136,6 +149,40 @@ export function Init() {
         ],
         [t]
     );
+
+    useEffect(() => {
+        const loadPrefill = async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/v0/init/prefill`);
+                if (!response.ok) {
+                    return;
+                }
+                const data: InitPrefillResponse = await response.json();
+                if (!data.locked) {
+                    return;
+                }
+
+                setDbLocked(true);
+                setDbTypeOpen(false);
+                setSSLModeOpen(false);
+                setFormData((prev) => ({
+                    ...prev,
+                    databaseType: data.database_type || prev.databaseType,
+                    databaseHost: data.database_host || prev.databaseHost,
+                    databasePort: data.database_port ? String(data.database_port) : prev.databasePort,
+                    databaseUser: data.database_user || prev.databaseUser,
+                    databasePassword: data.database_password_set ? '********' : '',
+                    databaseName: data.database_name || prev.databaseName,
+                    databaseSSLMode: data.database_ssl_mode || prev.databaseSSLMode,
+                    databasePath: data.database_path || prev.databasePath,
+                }));
+            } catch {
+                // Ignore prefill errors and fall back to editable defaults.
+            }
+        };
+
+        void loadPrefill();
+    }, []);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -180,25 +227,27 @@ export function Init() {
     );
 
     const validateForm = (): string | null => {
-        if (formData.databaseType === 'postgres') {
-            if (!formData.databaseHost.trim()) {
-                return t('Database host is required');
-            }
-            if (!formData.databasePort.trim() || isNaN(parseInt(formData.databasePort))) {
-                return t('Invalid database port');
-            }
-            if (!formData.databaseUser.trim()) {
-                return t('Database username is required');
-            }
-            if (!formData.databasePassword.trim()) {
-                return t('Database password is required');
-            }
-            if (!formData.databaseName.trim()) {
-                return t('Database name is required');
-            }
-        } else if (formData.databaseType === 'sqlite') {
-            if (!formData.databasePath.trim()) {
-                return t('Database path is required');
+        if (!dbLocked) {
+            if (formData.databaseType === 'postgres') {
+                if (!formData.databaseHost.trim()) {
+                    return t('Database host is required');
+                }
+                if (!formData.databasePort.trim() || isNaN(parseInt(formData.databasePort))) {
+                    return t('Invalid database port');
+                }
+                if (!formData.databaseUser.trim()) {
+                    return t('Database username is required');
+                }
+                if (!formData.databasePassword.trim()) {
+                    return t('Database password is required');
+                }
+                if (!formData.databaseName.trim()) {
+                    return t('Database name is required');
+                }
+            } else if (formData.databaseType === 'sqlite') {
+                if (!formData.databasePath.trim()) {
+                    return t('Database path is required');
+                }
             }
         }
         if (!formData.siteName.trim()) {
@@ -232,24 +281,32 @@ export function Init() {
         setError(null);
 
         try {
+            const requestBody = dbLocked
+                ? {
+                      site_name: formData.siteName.trim(),
+                      admin_username: formData.adminUsername.trim(),
+                      admin_password: formData.adminPassword,
+                  }
+                : {
+                      database_type: formData.databaseType,
+                      database_host: formData.databaseHost.trim(),
+                      database_port: parseInt(formData.databasePort),
+                      database_user: formData.databaseUser.trim(),
+                      database_password: formData.databasePassword,
+                      database_name: formData.databaseName.trim(),
+                      database_ssl_mode: formData.databaseSSLMode,
+                      database_path: formData.databasePath.trim(),
+                      site_name: formData.siteName.trim(),
+                      admin_username: formData.adminUsername.trim(),
+                      admin_password: formData.adminPassword,
+                  };
+
             const response = await fetch(`${API_BASE_URL}/v0/init/setup`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    database_type: formData.databaseType,
-                    database_host: formData.databaseHost.trim(),
-                    database_port: parseInt(formData.databasePort),
-                    database_user: formData.databaseUser.trim(),
-                    database_password: formData.databasePassword,
-                    database_name: formData.databaseName.trim(),
-                    database_ssl_mode: formData.databaseSSLMode,
-                    database_path: formData.databasePath.trim(),
-                    site_name: formData.siteName.trim(),
-                    admin_username: formData.adminUsername.trim(),
-                    admin_password: formData.adminPassword,
-                }),
+                body: JSON.stringify(requestBody),
             });
 
             if (!response.ok) {
@@ -339,11 +396,11 @@ export function Init() {
                                             id="db-type-dropdown-btn"
                                             type="button"
                                             onClick={() => {
-                                                if (loading) return;
+                                                if (loading || dbLocked) return;
                                                 setDbTypeOpen((open) => !open);
                                                 setSSLModeOpen(false);
                                             }}
-                                            disabled={loading}
+                                            disabled={loading || dbLocked}
                                             className="form-input flex items-center justify-between rounded-lg text-white focus:outline-0 focus:ring-2 focus:ring-primary/50 border border-[#324467] bg-surface-dark h-12 px-4 text-base font-normal leading-normal transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                             style={dbTypeBtnWidth ? { width: dbTypeBtnWidth } : undefined}
                                         >
@@ -376,7 +433,7 @@ export function Init() {
                                                 name="databasePath"
                                                 value={formData.databasePath}
                                                 onChange={handleInputChange}
-                                                disabled={loading}
+                                                disabled={loading || dbLocked}
                                             />
                                         </label>
                                     </div>
@@ -394,7 +451,7 @@ export function Init() {
                                                     name="databaseHost"
                                                     value={formData.databaseHost}
                                                     onChange={handleInputChange}
-                                                    disabled={loading}
+                                                    disabled={loading || dbLocked}
                                                 />
                                             </label>
 
@@ -409,7 +466,7 @@ export function Init() {
                                                     name="databasePort"
                                                     value={formData.databasePort}
                                                     onChange={handleInputChange}
-                                                    disabled={loading}
+                                                    disabled={loading || dbLocked}
                                                 />
                                             </label>
                                         </div>
@@ -426,7 +483,7 @@ export function Init() {
                                                     name="databaseUser"
                                                     value={formData.databaseUser}
                                                     onChange={handleInputChange}
-                                                    disabled={loading}
+                                                    disabled={loading || dbLocked}
                                                 />
                                             </label>
 
@@ -442,7 +499,7 @@ export function Init() {
                                                         name="databasePassword"
                                                         value={formData.databasePassword}
                                                         onChange={handleInputChange}
-                                                        disabled={loading}
+                                                        disabled={loading || dbLocked}
                                                     />
                                                     <button
                                                         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors cursor-pointer flex items-center justify-center"
@@ -467,7 +524,7 @@ export function Init() {
                                                     name="databaseName"
                                                     value={formData.databaseName}
                                                     onChange={handleInputChange}
-                                                    disabled={loading}
+                                                    disabled={loading || dbLocked}
                                                 />
                                             </label>
 
@@ -479,11 +536,11 @@ export function Init() {
                                                     id="ssl-mode-dropdown-btn"
                                                     type="button"
                                                     onClick={() => {
-                                                        if (loading) return;
+                                                        if (loading || dbLocked) return;
                                                         setSSLModeOpen((open) => !open);
                                                         setDbTypeOpen(false);
                                                     }}
-                                                    disabled={loading}
+                                                    disabled={loading || dbLocked}
                                                     className="form-input flex items-center justify-between rounded-lg text-white focus:outline-0 focus:ring-2 focus:ring-primary/50 border border-[#324467] bg-surface-dark h-12 px-4 text-base font-normal leading-normal transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                                     style={sslModeBtnWidth ? { width: sslModeBtnWidth } : undefined}
                                                 >
