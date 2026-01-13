@@ -1,5 +1,9 @@
 export const API_BASE_URL =
-    typeof window === 'undefined' ? '' : window.location.origin;
+    typeof window === 'undefined'
+        ? ''
+        : import.meta.env.DEV
+            ? 'http://127.0.0.1:8318'
+            : window.location.origin;
 
 export const TOKEN_KEY_FRONT = 'front_token';
 export const TOKEN_KEY_ADMIN = 'admin_token';

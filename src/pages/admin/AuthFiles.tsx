@@ -140,15 +140,120 @@ function GroupDropdownMenu({
     );
 }
 
+interface MultiGroupDropdownMenuProps {
+    anchorId: string;
+    groups: { id: number; name: string }[];
+    selectedIds: number[];
+    search: string;
+    menuWidth?: number;
+    onSearchChange: (value: string) => void;
+    onToggle: (value: number) => void;
+    onClear: () => void;
+    onClose: () => void;
+}
+
+function MultiGroupDropdownMenu({
+    anchorId,
+    groups,
+    selectedIds,
+    search,
+    menuWidth,
+    onSearchChange,
+    onToggle,
+    onClear,
+    onClose,
+}: MultiGroupDropdownMenuProps) {
+    const { t } = useTranslation();
+    const menuRef = useRef<HTMLDivElement>(null);
+    const btn = document.getElementById(anchorId);
+    const rect = btn ? btn.getBoundingClientRect() : null;
+    const position = rect
+        ? { top: rect.bottom + 4, left: rect.left, width: rect.width }
+        : { top: 0, left: 0, width: 0 };
+
+    const selectedSet = new Set(selectedIds);
+    const filteredGroups = groups.filter((g) => {
+        const query = search.trim().toLowerCase();
+        if (!query) return true;
+        return g.name.toLowerCase().includes(query) || g.id.toString().includes(query);
+    });
+
+    return createPortal(
+        <>
+            <div className="fixed inset-0 z-[60]" onClick={onClose} />
+            <div
+                ref={menuRef}
+                className="fixed z-[70] bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-lg shadow-lg overflow-hidden max-h-64 overflow-y-auto"
+                style={{ top: position.top, left: position.left, width: position.width || menuWidth }}
+            >
+                <div className="p-3 border-b border-gray-200 dark:border-border-dark">
+                    <div className="relative">
+                        <Icon
+                            name="search"
+                            size={16}
+                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        />
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={(e) => onSearchChange(e.target.value)}
+                            placeholder={t('Search by name or ID...')}
+                            className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark rounded-lg text-slate-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        />
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    onClick={onClear}
+                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-100 dark:hover:bg-background-dark transition-colors ${
+                        selectedIds.length === 0
+                            ? 'bg-gray-100 dark:bg-background-dark text-primary font-medium'
+                            : 'text-slate-900 dark:text-white'
+                    }`}
+                >
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="truncate">{t('No Group')}</span>
+                        {selectedIds.length === 0 && <Icon name="check" size={16} className="text-primary" />}
+                    </div>
+                </button>
+                {filteredGroups.map((group) => (
+                    <button
+                        key={group.id}
+                        type="button"
+                        onClick={() => onToggle(group.id)}
+                        className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-100 dark:hover:bg-background-dark transition-colors ${
+                            selectedSet.has(group.id)
+                                ? 'bg-gray-100 dark:bg-background-dark text-primary font-medium'
+                                : 'text-slate-900 dark:text-white'
+                        }`}
+                        title={group.name}
+                    >
+                        <div className="flex items-center gap-3 min-w-0">
+                            <input
+                                type="checkbox"
+                                readOnly
+                                checked={selectedSet.has(group.id)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary"
+                            />
+                            <span className="truncate">{group.name}</span>
+                        </div>
+                    </button>
+                ))}
+            </div>
+        </>,
+        document.body
+    );
+}
+
 interface AuthFile {
     id: number;
     key: string;
     proxy_url?: string | null;
-    auth_group_id: number | null;
+    auth_group_id: number[];
     auth_group?: {
         id: number;
         name: string;
-    };
+    }[];
     content: Record<string, unknown>;
     is_available: boolean;
     created_at: string;
@@ -385,12 +490,16 @@ export function AdminAuthFiles() {
     const [groupFilterSearch, setGroupFilterSearch] = useState('');
     const [groupFilterBtnWidth, setGroupFilterBtnWidth] = useState<number | undefined>(undefined);
     const [newMenuOpen, setNewMenuOpen] = useState(false);
+    const [newMenuWidth, setNewMenuWidth] = useState<number | undefined>(undefined);
     const [importModalOpen, setImportModalOpen] = useState(false);
     const [importFiles, setImportFiles] = useState<File[]>([]);
     const [importDragging, setImportDragging] = useState(false);
     const [importSubmitting, setImportSubmitting] = useState(false);
     const [importError, setImportError] = useState('');
     const [importResult, setImportResult] = useState<ImportResponse | null>(null);
+    const [importGroupIds, setImportGroupIds] = useState<number[] | null>(null);
+    const [importGroupMenuOpen, setImportGroupMenuOpen] = useState(false);
+    const [importGroupSearch, setImportGroupSearch] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
     const [modalUrl, setModalUrl] = useState('');
     const [modalLoading, setModalLoading] = useState(false);
@@ -411,6 +520,12 @@ export function AdminAuthFiles() {
     const [bindModalOpen, setBindModalOpen] = useState(false);
     const [bindSubmitting, setBindSubmitting] = useState(false);
     const [bindError, setBindError] = useState('');
+    const [batchGroupModalOpen, setBatchGroupModalOpen] = useState(false);
+    const [batchGroupSubmitting, setBatchGroupSubmitting] = useState(false);
+    const [batchGroupError, setBatchGroupError] = useState('');
+    const [batchGroupIds, setBatchGroupIds] = useState<number[] | null>(null);
+    const [batchGroupMenuOpen, setBatchGroupMenuOpen] = useState(false);
+    const [batchGroupSearch, setBatchGroupSearch] = useState('');
     const [selectedProxyIds, setSelectedProxyIds] = useState<Set<number>>(new Set());
     const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -421,7 +536,7 @@ export function AdminAuthFiles() {
     const [editModalOpen, setEditModalOpen] = useState(false);
     const [editingFile, setEditingFile] = useState<AuthFile | null>(null);
     const [editKey, setEditKey] = useState('');
-    const [editGroupId, setEditGroupId] = useState<number | null>(null);
+    const [editGroupIds, setEditGroupIds] = useState<number[]>([]);
     const [editIsAvailable, setEditIsAvailable] = useState(true);
     const [editProxyUrl, setEditProxyUrl] = useState('');
     const [editSaving, setEditSaving] = useState(false);
@@ -429,7 +544,7 @@ export function AdminAuthFiles() {
     const [editGroupBtnWidth, setEditGroupBtnWidth] = useState<number | undefined>(undefined);
     const [editGroupSearch, setEditGroupSearch] = useState('');
     const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
-    const [newAuthGroupId, setNewAuthGroupId] = useState<number | null>(null);
+    const [newAuthGroupIds, setNewAuthGroupIds] = useState<number[] | null>(null);
     const [newAuthGroupMenuOpen, setNewAuthGroupMenuOpen] = useState(false);
     const [newAuthGroupSearch, setNewAuthGroupSearch] = useState('');
     const locale = i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US';
@@ -443,6 +558,7 @@ export function AdminAuthFiles() {
     const canRequestAuth = canCreateAuthFiles && canCheckAuthStatus && availableAuthTypes.length > 0;
     const canOpenNewMenu = canRequestAuth || canImportAuthFiles;
     const canBindProxies = canUpdateAuthFiles && canListProxies;
+    const canBatchGroup = canUpdateAuthFiles && canListGroups;
     const visibleIds = authFiles.map((file) => file.id);
     const anyVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
@@ -483,6 +599,32 @@ export function AdminAuthFiles() {
             setGroupFilterBtnWidth(Math.ceil(maxWidth) + 76);
         }
     }, [authGroups, t]);
+
+    useEffect(() => {
+        if (!canOpenNewMenu) {
+            setNewMenuWidth(undefined);
+            return;
+        }
+        const labels = availableAuthTypes.map((type) => type.label);
+        if (canImportAuthFiles) {
+            labels.push(t('Import From CLIProxyAPI'));
+        }
+        if (labels.length === 0) {
+            setNewMenuWidth(undefined);
+            return;
+        }
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+            let maxWidth = 0;
+            for (const label of labels) {
+                const width = ctx.measureText(label).width;
+                if (width > maxWidth) maxWidth = width;
+            }
+            setNewMenuWidth(Math.ceil(maxWidth) + 64);
+        }
+    }, [availableAuthTypes, canImportAuthFiles, canOpenNewMenu, t]);
 
 
     const fetchAuthGroups = useCallback(async () => {
@@ -643,13 +785,69 @@ export function AdminAuthFiles() {
         return (file.content?.type as string) || '';
     };
 
-    const resolveDefaultAuthGroupId = useCallback(() => {
+    const resolveDefaultAuthGroupIds = useCallback(() => {
         if (authGroups.length === 0) {
-            return null;
+            return [];
         }
         const defaultGroup = authGroups.find((group) => group.is_default);
-        return defaultGroup ? defaultGroup.id : authGroups[0].id;
+        const chosen = defaultGroup ? defaultGroup.id : authGroups[0].id;
+        return chosen ? [chosen] : [];
     }, [authGroups]);
+    const normalizeGroupIds = useCallback((ids: number[]) => {
+        const unique = Array.from(new Set(ids.filter((id) => id > 0)));
+        unique.sort((a, b) => a - b);
+        return unique;
+    }, []);
+    const toggleGroupId = useCallback(
+        (current: number[], value: number) => {
+            const normalized = normalizeGroupIds(current);
+            if (normalized.includes(value)) {
+                return normalized.filter((id) => id !== value);
+            }
+            return normalizeGroupIds([...normalized, value]);
+        },
+        [normalizeGroupIds]
+    );
+    const areGroupIdsEqual = useCallback(
+        (left: number[], right: number[]) => {
+            const leftNormalized = normalizeGroupIds(left);
+            const rightNormalized = normalizeGroupIds(right);
+            if (leftNormalized.length !== rightNormalized.length) {
+                return false;
+            }
+            return leftNormalized.every((value, index) => value === rightNormalized[index]);
+        },
+        [normalizeGroupIds]
+    );
+    const formatGroupNames = useCallback(
+        (ids: number[], groups?: { id: number; name: string }[]) => {
+            const normalizedIds = normalizeGroupIds(ids);
+            if (groups && groups.length > 0) {
+                const groupMap = new Map(groups.map((group) => [group.id, group.name]));
+                return normalizedIds
+                    .map((id) => groupMap.get(id) || `#${id}`)
+                    .filter((name) => name.trim() !== '');
+            }
+            return normalizedIds
+                .map((id) => authGroups.find((group) => group.id === id)?.name || `#${id}`)
+                .filter((name) => name.trim() !== '');
+        },
+        [authGroups, normalizeGroupIds]
+    );
+    const formatGroupLabel = useCallback(
+        (ids: number[], groups?: { id: number; name: string }[]) => {
+            const names = formatGroupNames(ids, groups);
+            return names.length > 0 ? names.join(', ') : t('No Group');
+        },
+        [formatGroupNames, t]
+    );
+    const newAuthGroupLabel =
+        newAuthGroupIds === null ? t('Select Auth Group') : formatGroupLabel(newAuthGroupIds);
+    const importGroupLabel =
+        importGroupIds === null ? t('Select Auth Group') : formatGroupLabel(importGroupIds);
+    const editGroupLabel = formatGroupLabel(editGroupIds, editingFile?.auth_group);
+    const batchGroupLabel =
+        batchGroupIds === null ? t('Select Auth Group') : formatGroupLabel(batchGroupIds);
 
     const getAuthTypeQueryValue = useCallback((typeKey: string) => {
         if (typeKey === 'gemini-cli') {
@@ -662,9 +860,10 @@ export function AdminAuthFiles() {
     }, []);
 
     const applyAuthGroupToNewAuthFiles = useCallback(async () => {
-        if (!canUpdateAuthFiles || newAuthGroupId === null) {
+        if (!canUpdateAuthFiles || newAuthGroupIds === null) {
             return;
         }
+        const selectedGroupIds = normalizeGroupIds(newAuthGroupIds);
         const snapshot = authSnapshotRef.current;
         const startedAt = authStartAtRef.current;
         const typeValue = authTypeKey ? getAuthTypeQueryValue(authTypeKey) : '';
@@ -682,7 +881,9 @@ export function AdminAuthFiles() {
             if (candidates.length === 0) {
                 return;
             }
-            const updates = candidates.filter((file) => file.auth_group_id !== newAuthGroupId);
+            const updates = candidates.filter((file) =>
+                !areGroupIdsEqual(file.auth_group_id || [], selectedGroupIds)
+            );
             if (updates.length === 0) {
                 return;
             }
@@ -690,14 +891,21 @@ export function AdminAuthFiles() {
                 updates.map((file) =>
                     apiFetchAdmin(`/v0/admin/auth-files/${file.id}`, {
                         method: 'PUT',
-                        body: JSON.stringify({ auth_group_id: newAuthGroupId }),
+                        body: JSON.stringify({ auth_group_id: selectedGroupIds }),
                     })
                 )
             );
         } catch (err) {
             console.error('Failed to update auth group for new auth files:', err);
         }
-    }, [authTypeKey, canUpdateAuthFiles, getAuthTypeQueryValue, newAuthGroupId]);
+    }, [
+        authTypeKey,
+        areGroupIdsEqual,
+        canUpdateAuthFiles,
+        getAuthTypeQueryValue,
+        newAuthGroupIds,
+        normalizeGroupIds,
+    ]);
 
     useEffect(() => {
         const allOptions = [t('All Types'), ...availableTypes];
@@ -720,7 +928,7 @@ export function AdminAuthFiles() {
         }
         setEditingFile(file);
         setEditKey(file.key);
-        setEditGroupId(file.auth_group_id);
+        setEditGroupIds(normalizeGroupIds(file.auth_group_id || []));
         setEditIsAvailable(file.is_available);
         setEditProxyUrl(file.proxy_url || '');
         setEditModalOpen(true);
@@ -731,32 +939,29 @@ export function AdminAuthFiles() {
         setEditSaving(true);
         try {
             const proxyUrl = editProxyUrl.trim();
+            const normalizedEditGroupIds = normalizeGroupIds(editGroupIds);
             const payload: Record<string, unknown> = {
                 key: editKey,
                 is_available: editIsAvailable,
                 proxy_url: proxyUrl,
             };
             if (canListGroups) {
-                payload.auth_group_id = editGroupId;
+                payload.auth_group_id = normalizedEditGroupIds;
             }
             await apiFetchAdmin(`/v0/admin/auth-files/${editingFile.id}`, {
                 method: 'PUT',
                 body: JSON.stringify(payload),
             });
             setEditModalOpen(false);
-            const selectedGroup = editGroupId
-                ? authGroups.find((group) => group.id === editGroupId) || null
-                : null;
+            const selectedGroups = authGroups.filter((group) => normalizedEditGroupIds.includes(group.id));
             setAuthFiles((prev) =>
                 prev.map((item) =>
                     item.id === editingFile.id
                         ? {
                             ...item,
                             key: editKey,
-                            auth_group_id: editGroupId,
-                            auth_group: selectedGroup
-                                ? { id: selectedGroup.id, name: selectedGroup.name }
-                                : undefined,
+                            auth_group_id: normalizedEditGroupIds,
+                            auth_group: selectedGroups,
                             proxy_url: proxyUrl,
                             is_available: editIsAvailable,
                             updated_at: new Date().toISOString(),
@@ -778,6 +983,7 @@ export function AdminAuthFiles() {
         setEditModalOpen(false);
         setEditingFile(null);
         setEditProxyUrl('');
+        setEditGroupIds([]);
         setEditGroupSearch('');
     };
 
@@ -817,9 +1023,10 @@ export function AdminAuthFiles() {
             const results = await Promise.allSettled(
                 selectedFiles.map((file, index) => {
                     const proxy = proxyPool[index % proxyPool.length];
+                    const payload: Record<string, unknown> = { proxy_url: proxy.proxy_url };
                     return apiFetchAdmin(`/v0/admin/auth-files/${file.id}`, {
                         method: 'PUT',
-                        body: JSON.stringify({ proxy_url: proxy.proxy_url }),
+                        body: JSON.stringify(payload),
                     });
                 })
             );
@@ -838,6 +1045,71 @@ export function AdminAuthFiles() {
             setBindError(t('Failed to bind some proxy servers. Please try again.'));
         } finally {
             setBindSubmitting(false);
+        }
+    };
+
+    const handleOpenBatchGroupModal = () => {
+        if (!canUpdateAuthFiles || !canListGroups) {
+            return;
+        }
+        setBatchGroupError('');
+        setBatchGroupIds(null);
+        setBatchGroupMenuOpen(false);
+        setBatchGroupSearch('');
+        setBatchGroupModalOpen(true);
+    };
+
+    const handleCloseBatchGroupModal = () => {
+        if (batchGroupSubmitting) {
+            return;
+        }
+        setBatchGroupModalOpen(false);
+        setBatchGroupError('');
+        setBatchGroupIds(null);
+        setBatchGroupMenuOpen(false);
+        setBatchGroupSearch('');
+    };
+
+    const handleBatchGroupApply = async () => {
+        if (!canUpdateAuthFiles || !canListGroups) {
+            return;
+        }
+        const selectedFiles = authFiles.filter((file) => selectedIds.has(file.id));
+        if (selectedFiles.length === 0) {
+            setBatchGroupError(t('Please select at least one auth file.'));
+            return;
+        }
+        if (batchGroupIds === null) {
+            setBatchGroupError(t('Please select at least one auth group.'));
+            return;
+        }
+        const normalizedBatchGroupIds = normalizeGroupIds(batchGroupIds);
+        setBatchGroupSubmitting(true);
+        setBatchGroupError('');
+        try {
+            const results = await Promise.allSettled(
+                selectedFiles.map((file) =>
+                    apiFetchAdmin(`/v0/admin/auth-files/${file.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ auth_group_id: normalizedBatchGroupIds }),
+                    })
+                )
+            );
+            const failed = results.filter((result) => result.status === 'rejected');
+            if (failed.length > 0) {
+                console.error('Failed to set auth groups:', failed);
+                setBatchGroupError(t('Failed to set auth groups. Please try again.'));
+            } else {
+                setBatchGroupModalOpen(false);
+                setSelectedIds(new Set());
+                showToast(t('Auth groups updated successfully'));
+            }
+            fetchData();
+        } catch (err) {
+            console.error('Failed to set auth groups:', err);
+            setBatchGroupError(t('Failed to set auth groups. Please try again.'));
+        } finally {
+            setBatchGroupSubmitting(false);
         }
     };
 
@@ -963,14 +1235,26 @@ export function AdminAuthFiles() {
     }, [stopPolling]);
 
     useEffect(() => {
-        if (!modalOpen || newAuthGroupId !== null) {
+        if (!modalOpen || newAuthGroupIds !== null || !canListGroups) {
             return;
         }
-        const defaultId = resolveDefaultAuthGroupId();
-        if (defaultId !== null) {
-            setNewAuthGroupId(defaultId);
+        const defaultIds = resolveDefaultAuthGroupIds();
+        if (defaultIds.length === 0) {
+            return;
         }
-    }, [modalOpen, newAuthGroupId, resolveDefaultAuthGroupId]);
+        setNewAuthGroupIds(defaultIds);
+    }, [canListGroups, modalOpen, newAuthGroupIds, resolveDefaultAuthGroupIds]);
+
+    useEffect(() => {
+        if (!importModalOpen || importGroupIds !== null || !canListGroups) {
+            return;
+        }
+        const defaultIds = resolveDefaultAuthGroupIds();
+        if (defaultIds.length === 0) {
+            return;
+        }
+        setImportGroupIds(defaultIds);
+    }, [canListGroups, importGroupIds, importModalOpen, resolveDefaultAuthGroupIds]);
 
     useEffect(() => {
         if (modalOpen) {
@@ -985,7 +1269,7 @@ export function AdminAuthFiles() {
         setIflowError('');
         setNewAuthGroupMenuOpen(false);
         setNewAuthGroupSearch('');
-        setNewAuthGroupId(null);
+        setNewAuthGroupIds(null);
     }, [modalOpen]);
 
     const handleOpenImportModal = () => {
@@ -998,6 +1282,12 @@ export function AdminAuthFiles() {
         setImportError('');
         setImportResult(null);
         setImportDragging(false);
+        setImportGroupMenuOpen(false);
+        setImportGroupSearch('');
+        if (canListGroups && importGroupIds === null && authGroups.length > 0) {
+            const defaultIds = resolveDefaultAuthGroupIds();
+            setImportGroupIds(defaultIds.length > 0 ? defaultIds : null);
+        }
     };
 
     const handleCloseImportModal = () => {
@@ -1009,6 +1299,9 @@ export function AdminAuthFiles() {
         setImportError('');
         setImportResult(null);
         setImportDragging(false);
+        setImportGroupIds(null);
+        setImportGroupMenuOpen(false);
+        setImportGroupSearch('');
     };
 
     const handleRemoveImportFile = (name: string, size: number) => {
@@ -1032,6 +1325,10 @@ export function AdminAuthFiles() {
             importFiles.forEach((file) => {
                 formData.append('files', file);
             });
+            if (importGroupIds !== null) {
+                const normalizedImportGroupIds = normalizeGroupIds(importGroupIds);
+                formData.append('auth_group_id', JSON.stringify(normalizedImportGroupIds));
+            }
             const res = await apiFetchAdmin<ImportResponse>('/v0/admin/auth-files/import', {
                 method: 'POST',
                 body: formData,
@@ -1091,7 +1388,12 @@ export function AdminAuthFiles() {
         setIflowError('');
         setNewAuthGroupSearch('');
         setNewAuthGroupMenuOpen(false);
-        setNewAuthGroupId(resolveDefaultAuthGroupId());
+        if (canListGroups) {
+            const defaultIds = resolveDefaultAuthGroupIds();
+            setNewAuthGroupIds(defaultIds.length > 0 ? defaultIds : null);
+        } else {
+            setNewAuthGroupIds(null);
+        }
         if (typeKey === 'iflow-cookie') {
             setModalLoading(false);
             return;
@@ -1272,8 +1574,23 @@ export function AdminAuthFiles() {
             subtitle={t('Manage authentication groups and their configurations.')}
         >
             <div className="space-y-6">
-                {(canOpenNewMenu || canBindProxies) && (
+                {(canOpenNewMenu || canBindProxies || canBatchGroup) && (
                     <div className="flex justify-end gap-2">
+                        {canBatchGroup && (
+                            <button
+                                onClick={handleOpenBatchGroupModal}
+                                disabled={selectedCount === 0}
+                                title={
+                                    selectedCount === 0
+                                        ? t('Please select at least one auth file.')
+                                        : t('Batch Set Auth Groups')
+                                }
+                                className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-background-dark text-slate-900 dark:text-white rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors font-medium border border-gray-200 dark:border-border-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <Icon name="group" size={18} />
+                                {t('Batch Set Auth Groups')}
+                            </button>
+                        )}
                         {canBindProxies && (
                             <button
                                 onClick={handleOpenBindModal}
@@ -1297,12 +1614,15 @@ export function AdminAuthFiles() {
                                     <Icon name="expand_more" size={18} />
                                 </button>
                                 {newMenuOpen && (
-                                    <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-lg shadow-lg z-10">
+                                    <div
+                                        className="absolute right-0 mt-2 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-lg shadow-lg z-10"
+                                        style={newMenuWidth ? { width: newMenuWidth } : undefined}
+                                    >
                                         {availableAuthTypes.map((type) => (
                                             <button
                                                 key={type.key}
                                                 onClick={() => handleNewAuthType(type.key)}
-                                                className="w-full text-left px-4 py-2.5 text-sm text-slate-900 dark:text-white hover:bg-gray-100 dark:hover:bg-background-dark first:rounded-t-lg last:rounded-b-lg transition-colors"
+                                                className="w-full text-left px-4 py-2.5 text-sm whitespace-nowrap text-slate-900 dark:text-white hover:bg-gray-100 dark:hover:bg-background-dark first:rounded-t-lg last:rounded-b-lg transition-colors"
                                             >
                                                 {type.label}
                                             </button>
@@ -1314,7 +1634,7 @@ export function AdminAuthFiles() {
                                                 )}
                                                 <button
                                                     onClick={handleOpenImportModal}
-                                                    className="w-full text-left px-4 py-2.5 text-sm text-slate-900 dark:text-white hover:bg-gray-100 dark:hover:bg-background-dark first:rounded-t-lg last:rounded-b-lg transition-colors"
+                                                    className="w-full text-left px-4 py-2.5 text-sm whitespace-nowrap text-slate-900 dark:text-white hover:bg-gray-100 dark:hover:bg-background-dark first:rounded-t-lg last:rounded-b-lg transition-colors"
                                                 >
                                                     {t('Import From CLIProxyAPI')}
                                                 </button>
@@ -1505,9 +1825,13 @@ export function AdminAuthFiles() {
                                                 )}
                                             </td>
                                             <td className="px-6 py-4">
-                                                {file.auth_group ? (
-                                                    <span className="text-slate-700 dark:text-gray-300">
-                                                        {file.auth_group.name}
+                                                {(file.auth_group && file.auth_group.length > 0) ||
+                                                (file.auth_group_id && file.auth_group_id.length > 0) ? (
+                                                    <span
+                                                        className="text-slate-700 dark:text-gray-300"
+                                                        title={formatGroupLabel(file.auth_group_id, file.auth_group)}
+                                                    >
+                                                        {formatGroupLabel(file.auth_group_id, file.auth_group)}
                                                     </span>
                                                 ) : (
                                                     <span className="text-gray-400 dark:text-gray-500">—</span>
@@ -1609,56 +1933,58 @@ export function AdminAuthFiles() {
                                     {t('No proxies found. Please add proxies first.')}
                                 </div>
                             ) : (
-                                <div className="border border-gray-200 dark:border-border-dark rounded-lg overflow-hidden">
-                                    <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-background-dark border-b border-gray-200 dark:border-border-dark">
-                                        <AdminCheckbox
-                                            checked={allProxySelected}
-                                            indeterminate={anyProxySelected && !allProxySelected}
-                                            disabled={bindSubmitting}
-                                            onChange={(nextChecked) => {
-                                                setSelectedProxyIds((prev) => {
-                                                    const next = new Set(prev);
-                                                    if (nextChecked) {
-                                                        proxyIds.forEach((id) => next.add(id));
-                                                    } else {
-                                                        proxyIds.forEach((id) => next.delete(id));
-                                                    }
-                                                    return next;
-                                                });
-                                            }}
-                                            title={t('Select all')}
-                                        />
-                                        <span className="text-sm text-slate-700 dark:text-gray-300">{t('Select all')}</span>
-                                    </div>
-                                    <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-border-dark">
-                                        {proxies.map((proxy) => (
-                                            <div key={proxy.id} className="flex items-center gap-3 px-4 py-3">
-                                                <AdminCheckbox
-                                                    checked={selectedProxyIds.has(proxy.id)}
-                                                    disabled={bindSubmitting}
-                                                    onChange={(nextChecked) => {
-                                                        setSelectedProxyIds((prev) => {
-                                                            const next = new Set(prev);
-                                                            if (nextChecked) {
-                                                                next.add(proxy.id);
-                                                            } else {
-                                                                next.delete(proxy.id);
-                                                            }
-                                                            return next;
-                                                        });
-                                                    }}
-                                                    title={t('Select row')}
-                                                />
-                                                <div className="min-w-0 flex-1">
-                                                    <div
-                                                        className="text-sm text-slate-900 dark:text-white font-mono truncate"
-                                                        title={proxy.proxy_url}
-                                                    >
-                                                        {proxy.proxy_url}
+                                <div className="space-y-4">
+                                    <div className="border border-gray-200 dark:border-border-dark rounded-lg overflow-hidden">
+                                        <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-background-dark border-b border-gray-200 dark:border-border-dark">
+                                            <AdminCheckbox
+                                                checked={allProxySelected}
+                                                indeterminate={anyProxySelected && !allProxySelected}
+                                                disabled={bindSubmitting}
+                                                onChange={(nextChecked) => {
+                                                    setSelectedProxyIds((prev) => {
+                                                        const next = new Set(prev);
+                                                        if (nextChecked) {
+                                                            proxyIds.forEach((id) => next.add(id));
+                                                        } else {
+                                                            proxyIds.forEach((id) => next.delete(id));
+                                                        }
+                                                        return next;
+                                                    });
+                                                }}
+                                                title={t('Select all')}
+                                            />
+                                            <span className="text-sm text-slate-700 dark:text-gray-300">{t('Select all')}</span>
+                                        </div>
+                                        <div className="max-h-64 overflow-y-auto divide-y divide-gray-200 dark:divide-border-dark">
+                                            {proxies.map((proxy) => (
+                                                <div key={proxy.id} className="flex items-center gap-3 px-4 py-3">
+                                                    <AdminCheckbox
+                                                        checked={selectedProxyIds.has(proxy.id)}
+                                                        disabled={bindSubmitting}
+                                                        onChange={(nextChecked) => {
+                                                            setSelectedProxyIds((prev) => {
+                                                                const next = new Set(prev);
+                                                                if (nextChecked) {
+                                                                    next.add(proxy.id);
+                                                                } else {
+                                                                    next.delete(proxy.id);
+                                                                }
+                                                                return next;
+                                                            });
+                                                        }}
+                                                        title={t('Select row')}
+                                                    />
+                                                    <div className="min-w-0 flex-1">
+                                                        <div
+                                                            className="text-sm text-slate-900 dark:text-white font-mono truncate"
+                                                            title={proxy.proxy_url}
+                                                        >
+                                                            {proxy.proxy_url}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -1691,6 +2017,82 @@ export function AdminAuthFiles() {
                 </div>
             )}
 
+            {batchGroupModalOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white dark:bg-surface-dark rounded-xl border border-gray-200 dark:border-border-dark shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col overflow-hidden">
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-border-dark shrink-0">
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                {t('Batch Set Auth Groups')}
+                            </h2>
+                            <button
+                                onClick={handleCloseBatchGroupModal}
+                                className="inline-flex h-8 w-8 items-center justify-center text-gray-500 hover:text-slate-900 dark:hover:text-white rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                            >
+                                <Icon name="close" size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4 flex-1 overflow-y-auto">
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-600 dark:text-text-secondary">
+                                <span>{t('Selected {{count}} auth files', { count: selectedCount })}</span>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    {t('Auth Group')}
+                                </label>
+                                <div className="relative">
+                                    <button
+                                        type="button"
+                                        id="batch-auth-group-dropdown-btn"
+                                        onClick={() => setBatchGroupMenuOpen(!batchGroupMenuOpen)}
+                                        className="flex items-center justify-between gap-2 w-full bg-gray-50 dark:bg-background-dark border border-gray-300 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-2.5"
+                                    >
+                                        <span className="truncate" title={batchGroupLabel}>
+                                            {batchGroupLabel}
+                                        </span>
+                                        <Icon name={batchGroupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
+                                    </button>
+                                    {batchGroupMenuOpen && (
+                                        <MultiGroupDropdownMenu
+                                            anchorId="batch-auth-group-dropdown-btn"
+                                            groups={authGroups}
+                                            selectedIds={batchGroupIds ?? []}
+                                            search={batchGroupSearch}
+                                            onSearchChange={setBatchGroupSearch}
+                                            onToggle={(value) => {
+                                                setBatchGroupIds((prev) => toggleGroupId(prev ?? [], value));
+                                            }}
+                                            onClear={() => setBatchGroupIds([])}
+                                            onClose={() => setBatchGroupMenuOpen(false)}
+                                        />
+                                    )}
+                                </div>
+                            </div>
+                            {batchGroupError && (
+                                <div className="text-sm text-red-600 dark:text-red-400">
+                                    {batchGroupError}
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex gap-3 px-6 py-4 border-t border-gray-200 dark:border-border-dark shrink-0">
+                            <button
+                                onClick={handleBatchGroupApply}
+                                disabled={batchGroupSubmitting || selectedCount === 0 || batchGroupIds === null}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {batchGroupSubmitting ? t('Saving...') : t('Save')}
+                            </button>
+                            <button
+                                onClick={handleCloseBatchGroupModal}
+                                disabled={batchGroupSubmitting}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-100 dark:bg-background-dark text-slate-900 dark:text-white border border-gray-300 dark:border-border-dark rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors font-medium disabled:opacity-50"
+                            >
+                                {t('Cancel')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {importModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
                     <div className="bg-white dark:bg-surface-dark rounded-xl border border-gray-200 dark:border-border-dark shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col overflow-hidden">
@@ -1706,6 +2108,40 @@ export function AdminAuthFiles() {
                             </button>
                         </div>
                         <div className="p-6 space-y-4 flex-1 overflow-y-auto">
+                            {canListGroups && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        {t('Auth Group')}
+                                    </label>
+                                    <div className="relative">
+                                        <button
+                                            type="button"
+                                            id="import-auth-group-dropdown-btn"
+                                            onClick={() => setImportGroupMenuOpen(!importGroupMenuOpen)}
+                                            className="flex items-center justify-between gap-2 w-full bg-gray-50 dark:bg-background-dark border border-gray-300 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-2.5"
+                                        >
+                                            <span className="truncate" title={importGroupLabel}>
+                                                {importGroupLabel}
+                                            </span>
+                                            <Icon name={importGroupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
+                                        </button>
+                                        {importGroupMenuOpen && (
+                                            <MultiGroupDropdownMenu
+                                                anchorId="import-auth-group-dropdown-btn"
+                                                groups={authGroups}
+                                                selectedIds={importGroupIds ?? []}
+                                                search={importGroupSearch}
+                                                onSearchChange={setImportGroupSearch}
+                                                onToggle={(value) => {
+                                                    setImportGroupIds((prev) => toggleGroupId(prev ?? [], value));
+                                                }}
+                                                onClear={() => setImportGroupIds([])}
+                                                onClose={() => setImportGroupMenuOpen(false)}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                             <div
                                 onDragOver={(event) => {
                                     event.preventDefault();
@@ -1871,25 +2307,24 @@ export function AdminAuthFiles() {
                                                     onClick={() => setNewAuthGroupMenuOpen(!newAuthGroupMenuOpen)}
                                                     className="flex items-center justify-between gap-2 bg-gray-50 dark:bg-background-dark border border-gray-300 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-2.5 whitespace-nowrap w-full"
                                                 >
-                                                    <span>
-                                                        {newAuthGroupId === null
-                                                            ? t('No Group')
-                                                            : authGroups.find((g) => g.id === newAuthGroupId)?.name ||
-                                                                t('Select Auth Group')}
+                                                    <span className="truncate" title={newAuthGroupLabel}>
+                                                        {newAuthGroupLabel}
                                                     </span>
                                                     <Icon name={newAuthGroupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
                                                 </button>
                                                 {newAuthGroupMenuOpen && (
-                                                    <GroupDropdownMenu
+                                                    <MultiGroupDropdownMenu
                                                         anchorId="new-auth-group-dropdown-btn"
                                                         groups={authGroups}
-                                                        selectedId={newAuthGroupId}
+                                                        selectedIds={newAuthGroupIds ?? []}
                                                         search={newAuthGroupSearch}
                                                         onSearchChange={setNewAuthGroupSearch}
-                                                        onSelect={(value) => {
-                                                            setNewAuthGroupId(value);
-                                                            setNewAuthGroupMenuOpen(false);
+                                                        onToggle={(value) => {
+                                                            setNewAuthGroupIds((prev) =>
+                                                                toggleGroupId(prev ?? [], value)
+                                                            );
                                                         }}
+                                                        onClear={() => setNewAuthGroupIds([])}
                                                         onClose={() => setNewAuthGroupMenuOpen(false)}
                                                     />
                                                 )}
@@ -2099,34 +2534,30 @@ export function AdminAuthFiles() {
                                             className="flex items-center justify-between gap-2 w-full bg-gray-50 dark:bg-background-dark border border-gray-300 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-2.5"
                                             style={editGroupBtnWidth ? { minWidth: editGroupBtnWidth } : undefined}
                                         >
-                                            <span>
-                                                {editGroupId
-                                                    ? authGroups.find((g) => g.id === editGroupId)?.name || t('No Group')
-                                                    : t('No Group')}
+                                            <span className="truncate" title={editGroupLabel}>
+                                                {editGroupLabel}
                                             </span>
                                             <Icon name={editGroupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
                                         </button>
                                         {editGroupMenuOpen && (
-                                            <GroupDropdownMenu
+                                            <MultiGroupDropdownMenu
                                                 anchorId="group-dropdown-btn"
                                                 groups={authGroups}
-                                                selectedId={editGroupId}
+                                                selectedIds={editGroupIds}
                                                 search={editGroupSearch}
                                                 menuWidth={editGroupBtnWidth}
                                                 onSearchChange={setEditGroupSearch}
-                                                onSelect={(value) => {
-                                                    setEditGroupId(value);
-                                                    setEditGroupMenuOpen(false);
+                                                onToggle={(value) => {
+                                                    setEditGroupIds((prev) => toggleGroupId(prev, value));
                                                 }}
+                                                onClear={() => setEditGroupIds([])}
                                                 onClose={() => setEditGroupMenuOpen(false)}
                                             />
                                         )}
                                     </div>
                                 ) : (
                                     <div className="block w-full p-2.5 text-sm text-slate-500 dark:text-text-secondary bg-gray-50 dark:bg-background-dark border border-gray-300 dark:border-border-dark rounded-lg">
-                                        {editGroupId
-                                            ? authGroups.find((g) => g.id === editGroupId)?.name || t('No Group')
-                                            : t('No Group')}
+                                        {editGroupLabel}
                                     </div>
                                 )}
                             </div>
