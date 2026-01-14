@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom';
 import { AdminDashboardLayout } from '../../components/admin/AdminDashboardLayout';
 import { AdminNoAccessCard } from '../../components/admin/AdminNoAccessCard';
+import { MultiGroupDropdownMenu } from '../../components/admin/MultiGroupDropdownMenu';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { apiFetchAdmin } from '../../api/config';
 import { Icon } from '../../components/Icon';
@@ -14,6 +15,7 @@ interface Plan {
     month_price: number;
     description: string;
     support_models?: SupportModel[] | string[] | string | null;
+    user_group_id: number[];
     feature1: string;
     feature2: string;
     feature3: string;
@@ -47,11 +49,21 @@ interface ModelMappingsResponse {
     model_mappings: ModelMapping[];
 }
 
+interface UserGroup {
+    id: number;
+    name: string;
+}
+
+interface UserGroupsResponse {
+    user_groups: UserGroup[];
+}
+
 interface PlanFormData {
     name: string;
     month_price: string;
     description: string;
     support_models: SupportModel[];
+    user_group_id: number[];
     feature1: string;
     feature2: string;
     feature3: string;
@@ -74,6 +86,7 @@ interface ConfirmDialogState {
 interface PlanModalProps {
     title: string;
     initialData: PlanFormData;
+    userGroups: UserGroup[];
     submitting: boolean;
     canListModelMappings: boolean;
     onClose: () => void;
@@ -345,6 +358,7 @@ function buildFormData(plan?: Plan): PlanFormData {
             month_price: '0',
             description: '',
             support_models: [],
+            user_group_id: [],
             feature1: '',
             feature2: '',
             feature3: '',
@@ -361,6 +375,7 @@ function buildFormData(plan?: Plan): PlanFormData {
         month_price: String(plan.month_price ?? 0),
         description: plan.description ?? '',
         support_models: normalizeSupportModels(plan.support_models),
+        user_group_id: plan.user_group_id ?? [],
         feature1: plan.feature1 ?? '',
         feature2: plan.feature2 ?? '',
         feature3: plan.feature3 ?? '',
@@ -373,13 +388,16 @@ function buildFormData(plan?: Plan): PlanFormData {
     };
 }
 
-function PlanModal({ title, initialData, submitting, canListModelMappings, onClose, onSubmit }: PlanModalProps) {
+function PlanModal({ title, initialData, userGroups, submitting, canListModelMappings, onClose, onSubmit }: PlanModalProps) {
     const { t } = useTranslation();
     const [formData, setFormData] = useState<PlanFormData>(initialData);
     const [error, setError] = useState('');
     const [availableModels, setAvailableModels] = useState<MultiSelectOption[]>([]);
     const [modelsLoading, setModelsLoading] = useState(false);
     const [modelsDropdownOpen, setModelsDropdownOpen] = useState(false);
+    const [userGroupMenuOpen, setUserGroupMenuOpen] = useState(false);
+    const [userGroupSearch, setUserGroupSearch] = useState('');
+    const [userGroupBtnWidth, setUserGroupBtnWidth] = useState<number | undefined>(undefined);
     const modelsButtonRef = useRef<HTMLButtonElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
     const visibleModels = useMemo(
@@ -389,6 +407,21 @@ function PlanModal({ title, initialData, submitting, canListModelMappings, onClo
     const availableModelMap = useMemo(() => {
         return new Map(visibleModels.map((option) => [option.key, option]));
     }, [visibleModels]);
+
+    useEffect(() => {
+        const allOptions = [t('No Group'), ...userGroups.map((g) => `${g.name} #${g.id}`)];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+            let maxWidth = 0;
+            for (const opt of allOptions) {
+                const width = ctx.measureText(opt).width;
+                if (width > maxWidth) maxWidth = width;
+            }
+            setUserGroupBtnWidth(Math.ceil(maxWidth) + 72);
+        }
+    }, [userGroups, t]);
 
     const parseNumber = (value: string, label: string, integer = false) => {
         const trimmed = value.trim();
@@ -498,6 +531,7 @@ function PlanModal({ title, initialData, submitting, canListModelMappings, onClo
             month_price: monthPrice,
             description: formData.description.trim(),
             support_models: cleanSupportModels(formData.support_models),
+            user_group_id: formData.user_group_id,
             feature1: formData.feature1.trim(),
             feature2: formData.feature2.trim(),
             feature3: formData.feature3.trim(),
@@ -694,6 +728,59 @@ function PlanModal({ title, initialData, submitting, canListModelMappings, onClo
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                            {t('User Group')}
+                        </label>
+                        <div className="relative">
+                            <button
+                                type="button"
+                                id="plan-user-groups-btn"
+                                onClick={() => setUserGroupMenuOpen(!userGroupMenuOpen)}
+                                className="w-full flex items-center justify-between gap-2 bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary px-3 py-2.5"
+                                style={userGroupBtnWidth ? { minWidth: userGroupBtnWidth } : undefined}
+                                title={
+                                    formData.user_group_id.length === 0
+                                        ? t('No Group')
+                                        : formData.user_group_id
+                                              .map((id) => userGroups.find((g) => g.id === id)?.name || `#${id}`)
+                                              .join(', ')
+                                }
+                            >
+                                <span className="truncate">
+                                    {formData.user_group_id.length === 0
+                                        ? t('No Group')
+                                        : t('Selected {{count}}', { count: formData.user_group_id.length })}
+                                </span>
+                                <Icon name={userGroupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
+                            </button>
+                            {userGroupMenuOpen && (
+                                <MultiGroupDropdownMenu
+                                    anchorId="plan-user-groups-btn"
+                                    groups={userGroups}
+                                    selectedIds={formData.user_group_id}
+                                    search={userGroupSearch}
+                                    emptyLabel={t('No Group')}
+                                    menuWidth={userGroupBtnWidth}
+                                    onSearchChange={setUserGroupSearch}
+                                    onToggle={(value) =>
+                                        setFormData((prev) => ({
+                                            ...prev,
+                                            user_group_id: prev.user_group_id.includes(value)
+                                                ? prev.user_group_id.filter((id) => id !== value)
+                                                : [...prev.user_group_id, value],
+                                        }))
+                                    }
+                                    onClear={() => setFormData((prev) => ({ ...prev, user_group_id: [] }))}
+                                    onClose={() => setUserGroupMenuOpen(false)}
+                                />
+                            )}
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-text-secondary">
+                            {t('Selected user groups will be granted when users purchase this plan.')}
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                             {t('Support Models')}
                         </label>
                         <div className="relative">
@@ -859,9 +946,11 @@ export function AdminPlans() {
     const canEnablePlan = hasPermission(buildAdminPermissionKey('POST', '/v0/admin/plans/:id/enable'));
     const canDisablePlan = hasPermission(buildAdminPermissionKey('POST', '/v0/admin/plans/:id/disable'));
     const canListModelMappings = hasPermission(buildAdminPermissionKey('GET', '/v0/admin/model-mappings'));
+    const canListUserGroups = hasPermission(buildAdminPermissionKey('GET', '/v0/admin/user-groups'));
 
     const [plans, setPlans] = useState<Plan[]>([]);
     const [loading, setLoading] = useState(true);
+    const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
     const [createOpen, setCreateOpen] = useState(false);
     const [editPlan, setEditPlan] = useState<Plan | null>(null);
@@ -885,6 +974,15 @@ export function AdminPlans() {
             fetchPlans();
         }
     }, [fetchPlans, canListPlans]);
+
+    useEffect(() => {
+        if (!canListUserGroups) {
+            return;
+        }
+        apiFetchAdmin<UserGroupsResponse>('/v0/admin/user-groups')
+            .then((res) => setUserGroups(res.user_groups || []))
+            .catch(console.error);
+    }, [canListUserGroups]);
 
     const totalPages = Math.ceil(plans.length / PAGE_SIZE);
     const paginatedPlans = useMemo(() => {
@@ -1021,6 +1119,7 @@ export function AdminPlans() {
                                     <th className="px-6 py-4">{t('Name')}</th>
                                     <th className="px-6 py-4">{t('Monthly Price')}</th>
                                     <th className="px-6 py-4">{t('Models')}</th>
+                                    <th className="px-6 py-4">{t('User Group')}</th>
                                     <th className="px-6 py-4">{t('Quota')}</th>
                                     <th className="px-6 py-4">{t('Rate limit')}</th>
                                     <th className="px-6 py-4">{t('Enabled')}</th>
@@ -1032,14 +1131,14 @@ export function AdminPlans() {
                                 {loading ? (
                                     [...Array(5)].map((_, i) => (
                                         <tr key={i}>
-                                            <td colSpan={9} className="px-6 py-4">
+                                            <td colSpan={10} className="px-6 py-4">
                                                 <div className="animate-pulse h-4 bg-slate-200 dark:bg-border-dark rounded"></div>
                                             </td>
                                         </tr>
                                     ))
                                 ) : paginatedPlans.length === 0 ? (
                                     <tr>
-                                        <td colSpan={9} className="px-6 py-8 text-center text-slate-500 dark:text-text-secondary">
+                                        <td colSpan={10} className="px-6 py-8 text-center text-slate-500 dark:text-text-secondary">
                                             {t('No plans found')}
                                         </td>
                                     </tr>
@@ -1056,6 +1155,12 @@ export function AdminPlans() {
                                                       )
                                                       .join(', ')
                                                 : '-';
+                                        const userGroupTitle =
+                                            plan.user_group_id.length === 0
+                                                ? t('No Group')
+                                                : plan.user_group_id
+                                                      .map((id) => userGroups.find((g) => g.id === id)?.name || `#${id}`)
+                                                      .join(', ');
                                         return (
                                             <tr
                                                 key={plan.id}
@@ -1073,6 +1178,13 @@ export function AdminPlans() {
                                                 <td className="px-6 py-4 text-slate-600 dark:text-text-secondary max-w-xs">
                                                     <span className="block truncate" title={modelLabel}>
                                                         {modelLabel}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary">
+                                                    <span className="block truncate" title={userGroupTitle}>
+                                                        {plan.user_group_id.length === 0
+                                                            ? t('No Group')
+                                                            : t('Selected {{count}}', { count: plan.user_group_id.length })}
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary font-mono">
@@ -1174,6 +1286,7 @@ export function AdminPlans() {
                 <PlanModal
                     title={t('New Plan')}
                     initialData={buildFormData()}
+                    userGroups={userGroups}
                     submitting={submitting}
                     canListModelMappings={canListModelMappings}
                     onClose={() => setCreateOpen(false)}
@@ -1184,6 +1297,7 @@ export function AdminPlans() {
                 <PlanModal
                     title={t('Edit Plan #{{id}}', { id: editPlan.id })}
                     initialData={buildFormData(editPlan)}
+                    userGroups={userGroups}
                     submitting={submitting}
                     canListModelMappings={canListModelMappings}
                     onClose={() => setEditPlan(null)}

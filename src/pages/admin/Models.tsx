@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AdminDashboardLayout } from '../../components/admin/AdminDashboardLayout';
 import { AdminNoAccessCard } from '../../components/admin/AdminNoAccessCard';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { MultiGroupDropdownMenu } from '../../components/admin/MultiGroupDropdownMenu';
 import { Icon } from '../../components/Icon';
 import { apiFetchAdmin } from '../../api/config';
 import { buildAdminPermissionKey, useAdminPermissions } from '../../utils/adminPermissions';
@@ -18,6 +19,7 @@ interface ModelMapping {
     fork: boolean;
     selector: number;
     rate_limit: number;
+    user_group_id: number[];
     is_enabled: boolean;
     created_at: string;
     updated_at: string;
@@ -25,6 +27,15 @@ interface ModelMapping {
 
 interface ListResponse {
     model_mappings: ModelMapping[];
+}
+
+interface UserGroup {
+    id: number;
+    name: string;
+}
+
+interface UserGroupsResponse {
+    user_groups: UserGroup[];
 }
 
 interface ProviderApiKeyRef {
@@ -256,9 +267,10 @@ interface CreateModalProps {
     onClose: () => void;
     onSuccess: () => void;
     canLoadModels: boolean;
+    userGroups: UserGroup[];
 }
 
-function CreateModal({ onClose, onSuccess, canLoadModels }: CreateModalProps) {
+function CreateModal({ onClose, onSuccess, canLoadModels, userGroups }: CreateModalProps) {
     const { t } = useTranslation();
     const providerOptions = buildProviderOptions(t);
     const selectorOptions = buildModelMappingSelectorOptions(t);
@@ -275,10 +287,29 @@ function CreateModal({ onClose, onSuccess, canLoadModels }: CreateModalProps) {
     const [models, setModels] = useState<string[]>([]);
     const [loadingModels, setLoadingModels] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [userGroupIds, setUserGroupIds] = useState<number[]>([]);
+    const [userGroupMenuOpen, setUserGroupMenuOpen] = useState(false);
+    const [userGroupSearch, setUserGroupSearch] = useState('');
+    const [userGroupBtnWidth, setUserGroupBtnWidth] = useState<number | undefined>(undefined);
 
     const providerBtnRef = useRef<HTMLButtonElement>(null);
     const modelBtnRef = useRef<HTMLButtonElement>(null);
     const selectorBtnRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+        const allOptions = [t('All Groups'), ...userGroups.map((g) => `${g.name} #${g.id}`)];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+            let maxWidth = 0;
+            for (const opt of allOptions) {
+                const width = ctx.measureText(opt).width;
+                if (width > maxWidth) maxWidth = width;
+            }
+            setUserGroupBtnWidth(Math.ceil(maxWidth) + 76);
+        }
+    }, [userGroups, t]);
 
     useEffect(() => {
         if (!provider) {
@@ -321,6 +352,7 @@ function CreateModal({ onClose, onSuccess, canLoadModels }: CreateModalProps) {
                     fork,
                     selector,
                     rate_limit: rateLimitValue,
+                    user_group_id: userGroupIds,
                     is_enabled: isEnabled,
                 }),
             });
@@ -482,6 +514,56 @@ function CreateModal({ onClose, onSuccess, canLoadModels }: CreateModalProps) {
                         />
                     </div>
 
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                            {t('User Group')}
+                        </label>
+                        <div className="relative">
+                            <button
+                                type="button"
+                                id="model-mapping-user-groups-btn"
+                                onClick={() => setUserGroupMenuOpen(!userGroupMenuOpen)}
+                                className="flex items-center justify-between gap-2 w-full bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary px-4 py-2.5"
+                                style={userGroupBtnWidth ? { minWidth: userGroupBtnWidth } : undefined}
+                                title={
+                                    userGroupIds.length === 0
+                                        ? t('All Groups')
+                                        : userGroupIds
+                                              .map((id) => userGroups.find((g) => g.id === id)?.name || `#${id}`)
+                                              .join(', ')
+                                }
+                            >
+                                <span className="truncate">
+                                    {userGroupIds.length === 0
+                                        ? t('All Groups')
+                                        : t('Selected {{count}}', { count: userGroupIds.length })}
+                                </span>
+                                <Icon name={userGroupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
+                            </button>
+                            {userGroupMenuOpen && (
+                                <MultiGroupDropdownMenu
+                                    anchorId="model-mapping-user-groups-btn"
+                                    groups={userGroups}
+                                    selectedIds={userGroupIds}
+                                    search={userGroupSearch}
+                                    emptyLabel={t('All Groups')}
+                                    menuWidth={userGroupBtnWidth}
+                                    onSearchChange={setUserGroupSearch}
+                                    onToggle={(value) =>
+                                        setUserGroupIds((prev) =>
+                                            prev.includes(value) ? prev.filter((id) => id !== value) : [...prev, value]
+                                        )
+                                    }
+                                    onClear={() => setUserGroupIds([])}
+                                    onClose={() => setUserGroupMenuOpen(false)}
+                                />
+                            )}
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-text-secondary">
+                            {t('Empty means all user groups can use this model mapping.')}
+                        </p>
+                    </div>
+
                     {/* Fork Switch */}
                     <div className="flex items-center justify-between">
                         <div>
@@ -552,9 +634,10 @@ interface EditModalProps {
     onClose: () => void;
     onSuccess: (updated: ModelMapping) => void;
     canLoadModels: boolean;
+    userGroups: UserGroup[];
 }
 
-function EditModal({ mapping, onClose, onSuccess, canLoadModels }: EditModalProps) {
+function EditModal({ mapping, onClose, onSuccess, canLoadModels, userGroups }: EditModalProps) {
     const { t } = useTranslation();
     const providerOptions = buildProviderOptions(t);
     const selectorOptions = buildModelMappingSelectorOptions(t);
@@ -571,10 +654,29 @@ function EditModal({ mapping, onClose, onSuccess, canLoadModels }: EditModalProp
     const [models, setModels] = useState<string[]>([]);
     const [loadingModels, setLoadingModels] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [userGroupIds, setUserGroupIds] = useState<number[]>(mapping.user_group_id ?? []);
+    const [userGroupMenuOpen, setUserGroupMenuOpen] = useState(false);
+    const [userGroupSearch, setUserGroupSearch] = useState('');
+    const [userGroupBtnWidth, setUserGroupBtnWidth] = useState<number | undefined>(undefined);
 
     const providerBtnRef = useRef<HTMLButtonElement>(null);
     const modelBtnRef = useRef<HTMLButtonElement>(null);
     const selectorBtnRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+        const allOptions = [t('All Groups'), ...userGroups.map((g) => `${g.name} #${g.id}`)];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+            let maxWidth = 0;
+            for (const opt of allOptions) {
+                const width = ctx.measureText(opt).width;
+                if (width > maxWidth) maxWidth = width;
+            }
+            setUserGroupBtnWidth(Math.ceil(maxWidth) + 76);
+        }
+    }, [userGroups, t]);
 
     useEffect(() => {
         if (!provider) {
@@ -615,6 +717,7 @@ function EditModal({ mapping, onClose, onSuccess, canLoadModels }: EditModalProp
                     fork,
                     selector,
                     rate_limit: rateLimitValue,
+                    user_group_id: userGroupIds,
                     is_enabled: isEnabled,
                 }),
             });
@@ -626,6 +729,7 @@ function EditModal({ mapping, onClose, onSuccess, canLoadModels }: EditModalProp
                 fork,
                 selector,
                 rate_limit: rateLimitValue,
+                user_group_id: userGroupIds,
                 is_enabled: isEnabled,
             });
             onClose();
@@ -781,6 +885,56 @@ function EditModal({ mapping, onClose, onSuccess, canLoadModels }: EditModalProp
                             placeholder="0"
                             className="w-full px-4 py-2.5 text-sm bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark rounded-lg text-slate-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                         />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                            {t('User Group')}
+                        </label>
+                        <div className="relative">
+                            <button
+                                type="button"
+                                id="edit-model-mapping-user-groups-btn"
+                                onClick={() => setUserGroupMenuOpen(!userGroupMenuOpen)}
+                                className="flex items-center justify-between gap-2 w-full bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary px-4 py-2.5"
+                                style={userGroupBtnWidth ? { minWidth: userGroupBtnWidth } : undefined}
+                                title={
+                                    userGroupIds.length === 0
+                                        ? t('All Groups')
+                                        : userGroupIds
+                                              .map((id) => userGroups.find((g) => g.id === id)?.name || `#${id}`)
+                                              .join(', ')
+                                }
+                            >
+                                <span className="truncate">
+                                    {userGroupIds.length === 0
+                                        ? t('All Groups')
+                                        : t('Selected {{count}}', { count: userGroupIds.length })}
+                                </span>
+                                <Icon name={userGroupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
+                            </button>
+                            {userGroupMenuOpen && (
+                                <MultiGroupDropdownMenu
+                                    anchorId="edit-model-mapping-user-groups-btn"
+                                    groups={userGroups}
+                                    selectedIds={userGroupIds}
+                                    search={userGroupSearch}
+                                    emptyLabel={t('All Groups')}
+                                    menuWidth={userGroupBtnWidth}
+                                    onSearchChange={setUserGroupSearch}
+                                    onToggle={(value) =>
+                                        setUserGroupIds((prev) =>
+                                            prev.includes(value) ? prev.filter((id) => id !== value) : [...prev, value]
+                                        )
+                                    }
+                                    onClear={() => setUserGroupIds([])}
+                                    onClose={() => setUserGroupMenuOpen(false)}
+                                />
+                            )}
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-text-secondary">
+                            {t('Empty means all user groups can use this model mapping.')}
+                        </p>
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -1512,6 +1666,7 @@ export function AdminModels() {
     const { t } = useTranslation();
     const { hasPermission } = useAdminPermissions();
     const canListMappings = hasPermission(buildAdminPermissionKey('GET', '/v0/admin/model-mappings'));
+    const canListUserGroups = hasPermission(buildAdminPermissionKey('GET', '/v0/admin/user-groups'));
     const canListAvailableModels = hasPermission(
         buildAdminPermissionKey('GET', '/v0/admin/model-mappings/available-models')
     );
@@ -1540,6 +1695,7 @@ export function AdminModels() {
 
     const [mappings, setMappings] = useState<ModelMapping[]>([]);
     const [loading, setLoading] = useState(true);
+    const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
     const [providerApiKeys, setProviderApiKeys] = useState<ProviderApiKeyRef[]>([]);
     const [providerFilter, setProviderFilter] = useState('');
     const [providerDropdownOpen, setProviderDropdownOpen] = useState(false);
@@ -1578,6 +1734,15 @@ export function AdminModels() {
             fetchData();
         }
     }, [fetchData, canListMappings]);
+
+    useEffect(() => {
+        if (!canListUserGroups) {
+            return;
+        }
+        apiFetchAdmin<UserGroupsResponse>('/v0/admin/user-groups')
+            .then((res) => setUserGroups(res.user_groups || []))
+            .catch(console.error);
+    }, [canListUserGroups]);
 
     const fetchProviderApiKeys = useCallback(async () => {
         if (!canListProviderApiKeys) {
@@ -2000,6 +2165,7 @@ export function AdminModels() {
                                     <th className="px-6 py-4">{t('Model Name')}</th>
                                     <th className="px-6 py-4">{t('New Model Name')}</th>
                                     <th className="px-6 py-4">{t('Rate limit')}</th>
+                                    <th className="px-6 py-4">{t('User Group')}</th>
                                     <th className="px-6 py-4">{t('Fork')}</th>
                                     <th className="px-6 py-4">{t('Status')}</th>
                                     <th className="px-6 py-4">{t('Actions')}</th>
@@ -2008,7 +2174,7 @@ export function AdminModels() {
                         <tbody className="divide-y divide-gray-200 dark:divide-border-dark">
                             {loading ? (
                                 <tr>
-                                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                                    <td colSpan={9} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                                         <div className="flex items-center justify-center gap-2">
                                             <Icon name="progress_activity" className="animate-spin" />
                                             <span>{t('Loading...')}</span>
@@ -2017,7 +2183,7 @@ export function AdminModels() {
                                 </tr>
                             ) : filteredMappings.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                                    <td colSpan={9} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                                         {t('No model mappings found')}
                                     </td>
                                 </tr>
@@ -2057,6 +2223,22 @@ export function AdminModels() {
                                         </td>
                                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-text-secondary font-mono">
                                             {mapping.rate_limit.toLocaleString()}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary">
+                                            <span
+                                                className="truncate"
+                                                title={
+                                                    mapping.user_group_id.length === 0
+                                                        ? t('All Groups')
+                                                        : mapping.user_group_id
+                                                              .map((id) => userGroups.find((g) => g.id === id)?.name || `#${id}`)
+                                                              .join(', ')
+                                                }
+                                            >
+                                                {mapping.user_group_id.length === 0
+                                                    ? t('All Groups')
+                                                    : t('Selected {{count}}', { count: mapping.user_group_id.length })}
+                                            </span>
                                         </td>
                                         <td className="px-6 py-4">
                                             <span
@@ -2146,6 +2328,7 @@ export function AdminModels() {
                     onClose={() => setCreateModalOpen(false)}
                     onSuccess={fetchData}
                     canLoadModels={canListAvailableModels}
+                    userGroups={userGroups}
                 />
             )}
 
@@ -2155,6 +2338,7 @@ export function AdminModels() {
                     onClose={() => setEditMapping(null)}
                     onSuccess={handleEditSave}
                     canLoadModels={canListAvailableModels}
+                    userGroups={userGroups}
                 />
             )}
 

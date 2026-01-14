@@ -14,6 +14,7 @@ interface PrepaidCard {
     password: string;
     amount: number;
     balance: number;
+    user_group_id: number | null;
     valid_days: number;
     expires_at: string | null;
     created_at: string;
@@ -35,6 +36,7 @@ interface PrepaidCardFormData {
     card_sn: string;
     password: string;
     amount: string;
+    user_group_id: string;
     valid_days: string;
     is_enabled: boolean;
 }
@@ -42,6 +44,7 @@ interface PrepaidCardFormData {
 interface PrepaidCardModalProps {
     title: string;
     initialData: PrepaidCardFormData;
+    userGroups: UserGroup[];
     submitting: boolean;
     onClose: () => void;
     onSubmit: (payload: Record<string, unknown>) => void;
@@ -53,6 +56,7 @@ interface BatchFormData {
     count: string;
     card_sn_prefix: string;
     password_length: string;
+    user_group_id: string;
     valid_days: string;
 }
 
@@ -66,6 +70,15 @@ const STATUS_OPTIONS = [
     { value: 'unused', label: 'Unused' },
     { value: 'redeemed', label: 'Redeemed' },
 ];
+
+interface UserGroup {
+    id: number;
+    name: string;
+}
+
+interface UserGroupsResponse {
+    user_groups: UserGroup[];
+}
 
 interface StatusDropdownMenuProps {
     status: string;
@@ -110,10 +123,115 @@ function StatusDropdownMenu({ status, menuWidth, onSelect, onClose }: StatusDrop
     );
 }
 
-function PrepaidCardModal({ title, initialData, submitting, onClose, onSubmit }: PrepaidCardModalProps) {
+interface SearchableDropdownMenuProps {
+    anchorId: string;
+    options: { id: number; name: string }[];
+    selectedId: number | null;
+    search: string;
+    menuWidth?: number;
+    onSearchChange: (value: string) => void;
+    onSelect: (value: number) => void;
+    onClose: () => void;
+}
+
+function SearchableDropdownMenu({
+    anchorId,
+    options,
+    selectedId,
+    search,
+    menuWidth,
+    onSearchChange,
+    onSelect,
+    onClose,
+}: SearchableDropdownMenuProps) {
+    const { t } = useTranslation();
+    const btn = document.getElementById(anchorId);
+    const rect = btn ? btn.getBoundingClientRect() : null;
+    const position = rect
+        ? { top: rect.bottom + 4, left: rect.left, width: rect.width }
+        : { top: 0, left: 0, width: 0 };
+
+    return createPortal(
+        <>
+            <div className="fixed inset-0 z-40" onClick={onClose} />
+            <div
+                className="fixed z-50 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-lg shadow-lg overflow-hidden max-h-72"
+                style={{ top: position.top, left: position.left, width: position.width || menuWidth }}
+            >
+                <div className="p-3 border-b border-gray-200 dark:border-border-dark">
+                    <div className="relative">
+                        <Icon
+                            name="search"
+                            size={16}
+                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        />
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={(e) => onSearchChange(e.target.value)}
+                            placeholder={t('Search by name or ID...')}
+                            className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark rounded-lg text-slate-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        />
+                    </div>
+                </div>
+                <div className="max-h-56 overflow-y-auto">
+                    {options.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-slate-500 dark:text-text-secondary">
+                            {t('No groups found')}
+                        </div>
+                    ) : (
+                        options.map((opt) => (
+                            <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => onSelect(opt.id)}
+                                className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-100 dark:hover:bg-background-dark transition-colors ${
+                                    selectedId === opt.id
+                                        ? 'bg-gray-100 dark:bg-background-dark text-primary font-medium'
+                                        : 'text-slate-900 dark:text-white'
+                                }`}
+                            >
+                                {opt.id === 0 ? (
+                                    opt.name
+                                ) : (
+                                    <>
+                                        <span className="font-mono text-xs text-slate-500 dark:text-text-secondary mr-2">
+                                            #{opt.id}
+                                        </span>
+                                        {opt.name}
+                                    </>
+                                )}
+                            </button>
+                        ))
+                    )}
+                </div>
+            </div>
+        </>,
+        document.body
+    );
+}
+
+function PrepaidCardModal({ title, initialData, userGroups, submitting, onClose, onSubmit }: PrepaidCardModalProps) {
     const { t } = useTranslation();
     const [formData, setFormData] = useState<PrepaidCardFormData>(initialData);
     const [error, setError] = useState('');
+    const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+    const [groupSearch, setGroupSearch] = useState('');
+    const groupBtnWidth = useMemo(() => {
+        const allOptions = [t('No Group'), ...userGroups.map((g) => `${g.name} #${g.id}`)];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return null;
+        }
+        ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+        let maxWidth = 0;
+        for (const opt of allOptions) {
+            const width = ctx.measureText(opt).width;
+            if (width > maxWidth) maxWidth = width;
+        }
+        return Math.ceil(maxWidth) + 76;
+    }, [userGroups, t]);
 
     const handleSubmit = () => {
         const name = formData.name.trim();
@@ -149,6 +267,7 @@ function PrepaidCardModal({ title, initialData, submitting, onClose, onSubmit }:
             card_sn: cardSN,
             password,
             amount,
+            user_group_id: formData.user_group_id ? Number(formData.user_group_id) : 0,
             valid_days: validDays,
             is_enabled: formData.is_enabled,
         });
@@ -220,6 +339,53 @@ function PrepaidCardModal({ title, initialData, submitting, onClose, onSubmit }:
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                            {t('User Group')}
+                        </label>
+                        <div className="relative">
+                            <button
+                                type="button"
+                                id="prepaid-card-user-group-btn"
+                                onClick={() => setGroupMenuOpen(!groupMenuOpen)}
+                                className="flex items-center justify-between gap-2 w-full bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary px-4 py-2.5"
+                                style={groupBtnWidth ? { minWidth: groupBtnWidth } : undefined}
+                            >
+                                <span className="truncate">
+                                    {formData.user_group_id
+                                        ? userGroups.find((g) => g.id === Number(formData.user_group_id))?.name ||
+                                          `#${formData.user_group_id}`
+                                        : t('No Group')}
+                                </span>
+                                <Icon name={groupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
+                            </button>
+                            {groupMenuOpen && (
+                                <SearchableDropdownMenu
+                                    anchorId="prepaid-card-user-group-btn"
+                                    options={[
+                                        { id: 0, name: t('No Group') },
+                                        ...userGroups.filter((g) => {
+                                            const query = groupSearch.trim().toLowerCase();
+                                            if (!query) return true;
+                                            return g.name.toLowerCase().includes(query) || g.id.toString().includes(query);
+                                        }),
+                                    ]}
+                                    selectedId={formData.user_group_id ? Number(formData.user_group_id) : 0}
+                                    search={groupSearch}
+                                    menuWidth={groupBtnWidth ?? undefined}
+                                    onSearchChange={setGroupSearch}
+                                    onSelect={(value) => {
+                                        setFormData((prev) => ({
+                                            ...prev,
+                                            user_group_id: value === 0 ? '' : value.toString(),
+                                        }));
+                                        setGroupMenuOpen(false);
+                                    }}
+                                    onClose={() => setGroupMenuOpen(false)}
+                                />
+                            )}
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                             {t('Validity Days (0 = Never expires)')}
                         </label>
                         <input
@@ -278,10 +444,12 @@ function PrepaidCardModal({ title, initialData, submitting, onClose, onSubmit }:
 
 function BatchCreateModal({
     submitting,
+    userGroups,
     onClose,
     onSubmit,
 }: {
     submitting: boolean;
+    userGroups: UserGroup[];
     onClose: () => void;
     onSubmit: (payload: Record<string, unknown>) => void;
 }) {
@@ -292,9 +460,27 @@ function BatchCreateModal({
         count: '10',
         card_sn_prefix: '',
         password_length: '10',
+        user_group_id: '',
         valid_days: '',
     });
     const [error, setError] = useState('');
+    const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+    const [groupSearch, setGroupSearch] = useState('');
+    const groupBtnWidth = useMemo(() => {
+        const allOptions = [t('No Group'), ...userGroups.map((g) => `${g.name} #${g.id}`)];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return null;
+        }
+        ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+        let maxWidth = 0;
+        for (const opt of allOptions) {
+            const width = ctx.measureText(opt).width;
+            if (width > maxWidth) maxWidth = width;
+        }
+        return Math.ceil(maxWidth) + 76;
+    }, [userGroups, t]);
 
     const handleSubmit = () => {
         const name = formData.name.trim();
@@ -331,6 +517,7 @@ function BatchCreateModal({
             count,
             card_sn_prefix: formData.card_sn_prefix.trim(),
             password_length: passwordLength,
+            user_group_id: formData.user_group_id ? Number(formData.user_group_id) : 0,
             valid_days: validDays,
         });
     };
@@ -374,6 +561,53 @@ function BatchCreateModal({
                             placeholder={t('Enter amount')}
                             className={inputClassName}
                         />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                            {t('User Group')}
+                        </label>
+                        <div className="relative">
+                            <button
+                                type="button"
+                                id="batch-prepaid-user-group-btn"
+                                onClick={() => setGroupMenuOpen(!groupMenuOpen)}
+                                className="flex items-center justify-between gap-2 w-full bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary px-4 py-2.5"
+                                style={groupBtnWidth ? { minWidth: groupBtnWidth } : undefined}
+                            >
+                                <span className="truncate">
+                                    {formData.user_group_id
+                                        ? userGroups.find((g) => g.id === Number(formData.user_group_id))?.name ||
+                                          `#${formData.user_group_id}`
+                                        : t('No Group')}
+                                </span>
+                                <Icon name={groupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
+                            </button>
+                            {groupMenuOpen && (
+                                <SearchableDropdownMenu
+                                    anchorId="batch-prepaid-user-group-btn"
+                                    options={[
+                                        { id: 0, name: t('No Group') },
+                                        ...userGroups.filter((g) => {
+                                            const query = groupSearch.trim().toLowerCase();
+                                            if (!query) return true;
+                                            return g.name.toLowerCase().includes(query) || g.id.toString().includes(query);
+                                        }),
+                                    ]}
+                                    selectedId={formData.user_group_id ? Number(formData.user_group_id) : 0}
+                                    search={groupSearch}
+                                    menuWidth={groupBtnWidth ?? undefined}
+                                    onSearchChange={setGroupSearch}
+                                    onSelect={(value) => {
+                                        setFormData((prev) => ({
+                                            ...prev,
+                                            user_group_id: value === 0 ? '' : value.toString(),
+                                        }));
+                                        setGroupMenuOpen(false);
+                                    }}
+                                    onClose={() => setGroupMenuOpen(false)}
+                                />
+                            )}
+                        </div>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
@@ -520,6 +754,7 @@ function buildFormData(card?: PrepaidCard): PrepaidCardFormData {
             card_sn: '',
             password: '',
             amount: '',
+            user_group_id: '',
             valid_days: '',
             is_enabled: true,
         };
@@ -529,6 +764,7 @@ function buildFormData(card?: PrepaidCard): PrepaidCardFormData {
         card_sn: card.card_sn,
         password: card.password,
         amount: card.amount.toString(),
+        user_group_id: card.user_group_id ? card.user_group_id.toString() : '',
         valid_days: card.valid_days ? card.valid_days.toString() : '',
         is_enabled: card.is_enabled,
     };
@@ -542,9 +778,11 @@ export function AdminPrepaidCards() {
     const canBatchCreate = hasPermission(buildAdminPermissionKey('POST', '/v0/admin/prepaid-cards/batch'));
     const canUpdateCard = hasPermission(buildAdminPermissionKey('PUT', '/v0/admin/prepaid-cards/:id'));
     const canDeleteCard = hasPermission(buildAdminPermissionKey('DELETE', '/v0/admin/prepaid-cards/:id'));
+    const canListUserGroups = hasPermission(buildAdminPermissionKey('GET', '/v0/admin/user-groups'));
 
     const [cards, setCards] = useState<PrepaidCard[]>([]);
     const [loading, setLoading] = useState(true);
+    const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
     const [createOpen, setCreateOpen] = useState(false);
     const [editCard, setEditCard] = useState<PrepaidCard | null>(null);
@@ -594,6 +832,15 @@ export function AdminPrepaidCards() {
             fetchCards();
         }
     }, [fetchCards, canListCards]);
+
+    useEffect(() => {
+        if (!canListUserGroups) {
+            return;
+        }
+        apiFetchAdmin<UserGroupsResponse>('/v0/admin/user-groups')
+            .then((res) => setUserGroups(res.user_groups || []))
+            .catch(console.error);
+    }, [canListUserGroups]);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -826,6 +1073,7 @@ export function AdminPrepaidCards() {
                                 <th className="px-6 py-4">{t('Password')}</th>
                                 <th className="px-6 py-4">{t('Amount')}</th>
                                 <th className="px-6 py-4">{t('Balance')}</th>
+                                <th className="px-6 py-4">{t('User Group')}</th>
                                 <th className="px-6 py-4">{t('Valid Days')}</th>
                                 <th className="px-6 py-4">{t('Valid Until')}</th>
                                 <th className="px-6 py-4">{t('Enabled')}</th>
@@ -839,14 +1087,14 @@ export function AdminPrepaidCards() {
                             {loading ? (
                                 [...Array(5)].map((_, i) => (
                                     <tr key={i}>
-                                        <td colSpan={13} className="px-6 py-4">
+                                        <td colSpan={14} className="px-6 py-4">
                                             <div className="animate-pulse h-4 bg-slate-200 dark:bg-border-dark rounded"></div>
                                         </td>
                                     </tr>
                                 ))
                             ) : paginatedCards.length === 0 ? (
                                 <tr>
-                                    <td colSpan={13} className="px-6 py-8 text-center text-slate-500 dark:text-text-secondary">
+                                    <td colSpan={14} className="px-6 py-8 text-center text-slate-500 dark:text-text-secondary">
                                         {t('No prepaid cards found')}
                                     </td>
                                 </tr>
@@ -873,6 +1121,11 @@ export function AdminPrepaidCards() {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary font-mono">
                                             ${card.balance.toFixed(2)}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary">
+                                            {card.user_group_id
+                                                ? userGroups.find((g) => g.id === card.user_group_id)?.name || `#${card.user_group_id}`
+                                                : t('No Group')}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary">
                                             {card.valid_days > 0 ? card.valid_days : t('Never')}
@@ -994,6 +1247,7 @@ export function AdminPrepaidCards() {
                 <PrepaidCardModal
                     title={t('New Prepaid Card')}
                     initialData={buildFormData()}
+                    userGroups={userGroups}
                     submitting={submitting}
                     onClose={() => setCreateOpen(false)}
                     onSubmit={handleCreate}
@@ -1003,6 +1257,7 @@ export function AdminPrepaidCards() {
                 <PrepaidCardModal
                     title={t('Edit Prepaid Card #{{id}}', { id: editCard.id })}
                     initialData={buildFormData(editCard)}
+                    userGroups={userGroups}
                     submitting={submitting}
                     onClose={() => setEditCard(null)}
                     onSubmit={handleUpdate}
@@ -1011,6 +1266,7 @@ export function AdminPrepaidCards() {
             {batchOpen && (
                 <BatchCreateModal
                     submitting={batchSubmitting}
+                    userGroups={userGroups}
                     onClose={() => setBatchOpen(false)}
                     onSubmit={handleBatchCreate}
                 />

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AdminDashboardLayout } from '../../components/admin/AdminDashboardLayout';
 import { AdminNoAccessCard } from '../../components/admin/AdminNoAccessCard';
 import { apiFetchAdmin } from '../../api/config';
+import { MultiGroupDropdownMenu } from '../../components/admin/MultiGroupDropdownMenu';
 import { Icon } from '../../components/Icon';
 import { buildAdminPermissionKey, useAdminPermissions } from '../../utils/adminPermissions';
 import { useTranslation } from 'react-i18next';
@@ -11,7 +12,8 @@ interface User {
     id: number;
     username: string;
     email: string;
-    user_group_id: number | null;
+    user_group_id: number[];
+    bill_user_group_id: number[];
     daily_max_usage: number;
     rate_limit: number;
     active: boolean;
@@ -28,7 +30,7 @@ interface EditFormData {
     username: string;
     email: string;
     password: string;
-    user_group_id: string;
+    user_group_id: number[];
     daily_max_usage: string;
     rate_limit: string;
     disabled: boolean;
@@ -55,6 +57,13 @@ interface SearchableDropdownMenuProps {
 }
 
 const PAGE_SIZE = 10;
+
+function toggleGroupId(ids: number[], value: number) {
+    if (ids.includes(value)) {
+        return ids.filter((id) => id !== value);
+    }
+    return [...ids, value];
+}
 
 function SearchableDropdownMenu({
     anchorId,
@@ -153,7 +162,7 @@ function EditUserModal({
         username: user.username,
         email: user.email,
         password: '',
-        user_group_id: user.user_group_id ? user.user_group_id.toString() : '',
+        user_group_id: user.user_group_id ?? [],
         daily_max_usage: user.daily_max_usage.toString(),
         rate_limit: user.rate_limit.toString(),
         disabled: user.disabled,
@@ -166,7 +175,7 @@ function EditUserModal({
     const [groupBtnWidth, setGroupBtnWidth] = useState<number | undefined>(undefined);
 
     useEffect(() => {
-        const allOptions = ['No Group', ...groups.map((g) => `${g.name} #${g.id}`)];
+        const allOptions = [t('No Group'), ...groups.map((g) => `${g.name} #${g.id}`)];
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (ctx) {
@@ -178,7 +187,7 @@ function EditUserModal({
             }
             setGroupBtnWidth(Math.ceil(maxWidth) + 76);
         }
-    }, [groups]);
+    }, [groups, t]);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value, type, checked } = e.target;
@@ -203,7 +212,7 @@ function EditUserModal({
                 disabled: formData.disabled,
             };
             if (canAssignGroup) {
-                updateData.user_group_id = formData.user_group_id ? Number(formData.user_group_id) : 0;
+                updateData.user_group_id = formData.user_group_id;
             }
 
             await apiFetchAdmin(`/v0/admin/users/${user.id}`, {
@@ -225,7 +234,7 @@ function EditUserModal({
                 daily_max_usage: updateData.daily_max_usage as number,
                 rate_limit: updateData.rate_limit as number,
                 disabled: updateData.disabled as boolean,
-                user_group_id: formData.user_group_id ? Number(formData.user_group_id) : null,
+                user_group_id: formData.user_group_id,
             });
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Update failed');
@@ -331,51 +340,53 @@ function EditUserModal({
                                         className="flex items-center justify-between gap-2 w-full bg-white dark:bg-background-dark border border-gray-200 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary px-4 py-2.5"
                                         style={groupBtnWidth ? { minWidth: groupBtnWidth } : undefined}
                                     >
-                                        <span>
-                                            {formData.user_group_id
-                                                ? groups.find((g) => g.id === Number(formData.user_group_id))
-                                                      ?.name || `#${formData.user_group_id}`
-                                                : t('No Group')}
+                                        <span className="truncate">
+                                            {formData.user_group_id.length === 0
+                                                ? t('No Group')
+                                                : t('Selected {{count}}', { count: formData.user_group_id.length })}
                                         </span>
                                         <Icon name={groupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
                                     </button>
                                     {groupMenuOpen && (
-                                        <SearchableDropdownMenu
+                                        <MultiGroupDropdownMenu
                                             anchorId="user-group-dropdown-btn"
-                                            options={[
-                                                { id: 0, name: t('No Group') },
-                                                ...groups.filter((g) => {
-                                                    const query = groupSearch.trim().toLowerCase();
-                                                    if (!query) return true;
-                                                    return (
-                                                        g.name.toLowerCase().includes(query) ||
-                                                        g.id.toString().includes(query)
-                                                    );
-                                                }),
-                                            ]}
-                                            selectedId={formData.user_group_id ? Number(formData.user_group_id) : 0}
+                                            groups={groups}
+                                            selectedIds={formData.user_group_id}
                                             search={groupSearch}
+                                            emptyLabel={t('No Group')}
                                             menuWidth={groupBtnWidth}
                                             onSearchChange={setGroupSearch}
-                                            onSelect={(value) => {
+                                            onToggle={(value) => {
                                                 setFormData((prev) => ({
                                                     ...prev,
-                                                    user_group_id: value === 0 ? '' : value.toString(),
+                                                    user_group_id: toggleGroupId(prev.user_group_id, value),
                                                 }));
-                                                setGroupMenuOpen(false);
                                             }}
+                                            onClear={() => setFormData((prev) => ({ ...prev, user_group_id: [] }))}
                                             onClose={() => setGroupMenuOpen(false)}
                                         />
                                     )}
                                 </div>
                             ) : (
                                 <div className="w-full px-4 py-2.5 text-sm border border-gray-200 dark:border-border-dark rounded-lg bg-gray-50 dark:bg-background-dark text-slate-500 dark:text-text-secondary">
-                                    {formData.user_group_id
-                                        ? groups.find((g) => g.id === Number(formData.user_group_id))?.name ||
-                                          `#${formData.user_group_id}`
-                                        : t('No Group')}
+                                    {formData.user_group_id.length === 0
+                                        ? t('No Group')
+                                        : t('Selected {{count}}', { count: formData.user_group_id.length })}
                                 </div>
                             )}
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                {t('Bill User Groups')}
+                            </label>
+                            <div className="w-full px-4 py-2.5 text-sm border border-gray-200 dark:border-border-dark rounded-lg bg-gray-50 dark:bg-background-dark text-slate-500 dark:text-text-secondary">
+                                {user.bill_user_group_id.length === 0
+                                    ? t('No Group')
+                                    : user.bill_user_group_id
+                                          .map((id) => groups.find((g) => g.id === id)?.name || `#${id}`)
+                                          .join(', ')}
+                            </div>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -533,7 +544,7 @@ export function AdminUsers() {
 
     const filteredUsers = useMemo(() => {
         if (!groupFilterId) return users;
-        return users.filter((user) => user.user_group_id === groupFilterId);
+        return users.filter((user) => user.user_group_id.includes(groupFilterId));
     }, [users, groupFilterId]);
 
     const totalPages = Math.ceil(filteredUsers.length / PAGE_SIZE);
@@ -708,6 +719,7 @@ export function AdminUsers() {
                                     <th className="px-6 py-4">{t('Daily Max Usage')}</th>
                                     <th className="px-6 py-4">{t('Rate limit')}</th>
                                     <th className="px-6 py-4">{t('User Group')}</th>
+                                    <th className="px-6 py-4">{t('Bill User Groups')}</th>
                                     <th className="px-6 py-4">{t('Status')}</th>
                                     <th className="px-6 py-4">{t('Created At')}</th>
                                     <th className="px-6 py-4">{t('Actions')}</th>
@@ -717,14 +729,14 @@ export function AdminUsers() {
                             {loading ? (
                                 [...Array(5)].map((_, i) => (
                                     <tr key={i}>
-                                        <td colSpan={9} className="px-6 py-4">
+                                        <td colSpan={10} className="px-6 py-4">
                                             <div className="animate-pulse h-4 bg-slate-200 dark:bg-border-dark rounded"></div>
                                         </td>
                                     </tr>
                                 ))
                             ) : paginatedUsers.length === 0 ? (
                                 <tr>
-                                    <td colSpan={9} className="px-6 py-8 text-center text-slate-500 dark:text-text-secondary">
+                                    <td colSpan={10} className="px-6 py-8 text-center text-slate-500 dark:text-text-secondary">
                                         {searchQuery ? t('No users found') : t('No users yet')}
                                     </td>
                                 </tr>
@@ -750,9 +762,36 @@ export function AdminUsers() {
                                             {user.rate_limit.toLocaleString()}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary">
-                                            {user.user_group_id
-                                                ? groups.find((g) => g.id === user.user_group_id)?.name || `#${user.user_group_id}`
-                                                : t('No Group')}
+                                            <span
+                                                className="truncate"
+                                                title={
+                                                    user.user_group_id.length === 0
+                                                        ? t('No Group')
+                                                        : user.user_group_id
+                                                              .map((id) => groups.find((g) => g.id === id)?.name || `#${id}`)
+                                                              .join(', ')
+                                                }
+                                            >
+                                                {user.user_group_id.length === 0
+                                                    ? t('No Group')
+                                                    : t('Selected {{count}}', { count: user.user_group_id.length })}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary">
+                                            <span
+                                                className="truncate"
+                                                title={
+                                                    user.bill_user_group_id.length === 0
+                                                        ? t('No Group')
+                                                        : user.bill_user_group_id
+                                                              .map((id) => groups.find((g) => g.id === id)?.name || `#${id}`)
+                                                              .join(', ')
+                                                }
+                                            >
+                                                {user.bill_user_group_id.length === 0
+                                                    ? t('No Group')
+                                                    : t('Selected {{count}}', { count: user.bill_user_group_id.length })}
+                                            </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             {user.disabled ? (

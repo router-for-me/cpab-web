@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminDashboardLayout } from '../../components/admin/AdminDashboardLayout';
 import { AdminNoAccessCard } from '../../components/admin/AdminNoAccessCard';
+import { MultiGroupDropdownMenu } from '../../components/admin/MultiGroupDropdownMenu';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { apiFetchAdmin } from '../../api/config';
 import { Icon } from '../../components/Icon';
@@ -12,6 +13,7 @@ interface AuthGroup {
     name: string;
     is_default: boolean;
     rate_limit: number;
+    user_group_id: number[];
     created_at: string;
     updated_at: string;
 }
@@ -20,10 +22,20 @@ interface ListResponse {
     auth_groups: AuthGroup[];
 }
 
+interface UserGroup {
+    id: number;
+    name: string;
+}
+
+interface UserGroupsResponse {
+    user_groups: UserGroup[];
+}
+
 interface AuthGroupFormData {
     name: string;
     is_default: boolean;
     rate_limit: string;
+    user_group_id: number[];
 }
 
 interface ConfirmDialogState {
@@ -37,6 +49,7 @@ interface ConfirmDialogState {
 interface AuthGroupModalProps {
     title: string;
     initialData: AuthGroupFormData;
+    userGroups: UserGroup[];
     submitting: boolean;
     onClose: () => void;
     onSubmit: (payload: Record<string, unknown>) => void;
@@ -47,10 +60,28 @@ const PAGE_SIZE = 10;
 const inputClassName =
     'w-full px-4 py-2.5 text-sm bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark rounded-lg text-slate-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent';
 
-function AuthGroupModal({ title, initialData, submitting, onClose, onSubmit }: AuthGroupModalProps) {
+function AuthGroupModal({ title, initialData, userGroups, submitting, onClose, onSubmit }: AuthGroupModalProps) {
     const { t } = useTranslation();
     const [formData, setFormData] = useState<AuthGroupFormData>(initialData);
     const [error, setError] = useState('');
+    const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+    const [groupSearch, setGroupSearch] = useState('');
+    const [groupBtnWidth, setGroupBtnWidth] = useState<number | undefined>(undefined);
+
+    useEffect(() => {
+        const allOptions = [t('All Groups'), ...userGroups.map((g) => `${g.name} #${g.id}`)];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+            let maxWidth = 0;
+            for (const opt of allOptions) {
+                const width = ctx.measureText(opt).width;
+                if (width > maxWidth) maxWidth = width;
+            }
+            setGroupBtnWidth(Math.ceil(maxWidth) + 76);
+        }
+    }, [userGroups, t]);
 
     const handleSubmit = () => {
         const name = formData.name.trim();
@@ -65,7 +96,12 @@ function AuthGroupModal({ title, initialData, submitting, onClose, onSubmit }: A
             return;
         }
         setError('');
-        onSubmit({ name, is_default: formData.is_default, rate_limit: rateLimit });
+        onSubmit({
+            name,
+            is_default: formData.is_default,
+            rate_limit: rateLimit,
+            user_group_id: formData.user_group_id,
+        });
     };
 
     return (
@@ -126,6 +162,58 @@ function AuthGroupModal({ title, initialData, submitting, onClose, onSubmit }: A
                             className={inputClassName}
                         />
                     </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                            {t('User Group')}
+                        </label>
+                        <div className="relative">
+                            <button
+                                type="button"
+                                id="auth-group-user-groups-btn"
+                                onClick={() => setGroupMenuOpen(!groupMenuOpen)}
+                                className="flex items-center justify-between gap-2 w-full bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary px-4 py-2.5"
+                                style={groupBtnWidth ? { minWidth: groupBtnWidth } : undefined}
+                                title={
+                                    formData.user_group_id.length === 0
+                                        ? t('All Groups')
+                                        : formData.user_group_id
+                                              .map((id) => userGroups.find((g) => g.id === id)?.name || `#${id}`)
+                                              .join(', ')
+                                }
+                            >
+                                <span className="truncate">
+                                    {formData.user_group_id.length === 0
+                                        ? t('All Groups')
+                                        : t('Selected {{count}}', { count: formData.user_group_id.length })}
+                                </span>
+                                <Icon name={groupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
+                            </button>
+                            {groupMenuOpen && (
+                                <MultiGroupDropdownMenu
+                                    anchorId="auth-group-user-groups-btn"
+                                    groups={userGroups}
+                                    selectedIds={formData.user_group_id}
+                                    search={groupSearch}
+                                    emptyLabel={t('All Groups')}
+                                    menuWidth={groupBtnWidth}
+                                    onSearchChange={setGroupSearch}
+                                    onToggle={(value) =>
+                                        setFormData((prev) => ({
+                                            ...prev,
+                                            user_group_id: prev.user_group_id.includes(value)
+                                                ? prev.user_group_id.filter((id) => id !== value)
+                                                : [...prev.user_group_id, value],
+                                        }))
+                                    }
+                                    onClear={() => setFormData((prev) => ({ ...prev, user_group_id: [] }))}
+                                    onClose={() => setGroupMenuOpen(false)}
+                                />
+                            )}
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-text-secondary">
+                            {t('Empty means all user groups can use this auth group.')}
+                        </p>
+                    </div>
                     {error && (
                         <div className="text-sm text-red-600 dark:text-red-400">
                             {t(error)}
@@ -158,12 +246,14 @@ function buildFormData(group?: AuthGroup): AuthGroupFormData {
             name: '',
             is_default: false,
             rate_limit: '0',
+            user_group_id: [],
         };
     }
     return {
         name: group.name,
         is_default: group.is_default,
         rate_limit: String(group.rate_limit ?? 0),
+        user_group_id: group.user_group_id ?? [],
     };
 }
 
@@ -177,8 +267,10 @@ export function AdminAuthGroups() {
     const canSetDefault = hasPermission(
         buildAdminPermissionKey('POST', '/v0/admin/auth-groups/:id/default')
     );
+    const canListUserGroups = hasPermission(buildAdminPermissionKey('GET', '/v0/admin/user-groups'));
 
     const [groups, setGroups] = useState<AuthGroup[]>([]);
+    const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
     const [loading, setLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
     const [createOpen, setCreateOpen] = useState(false);
@@ -203,6 +295,15 @@ export function AdminAuthGroups() {
             fetchGroups();
         }
     }, [fetchGroups, canListGroups]);
+
+    useEffect(() => {
+        if (!canListUserGroups) {
+            return;
+        }
+        apiFetchAdmin<UserGroupsResponse>('/v0/admin/user-groups')
+            .then((res) => setUserGroups(res.user_groups || []))
+            .catch(console.error);
+    }, [canListUserGroups]);
 
     const totalPages = Math.ceil(groups.length / PAGE_SIZE);
     const paginatedGroups = useMemo(() => {
@@ -338,6 +439,7 @@ export function AdminAuthGroups() {
                                     <th className="px-6 py-4">{t('Name')}</th>
                                     <th className="px-6 py-4">{t('Default')}</th>
                                     <th className="px-6 py-4">{t('Rate limit')}</th>
+                                    <th className="px-6 py-4">{t('User Group')}</th>
                                     <th className="px-6 py-4">{t('Created At')}</th>
                                     <th className="px-6 py-4">{t('Actions')}</th>
                                 </tr>
@@ -346,14 +448,14 @@ export function AdminAuthGroups() {
                             {loading ? (
                                 [...Array(5)].map((_, i) => (
                                     <tr key={i}>
-                                        <td colSpan={6} className="px-6 py-4">
+                                        <td colSpan={7} className="px-6 py-4">
                                             <div className="animate-pulse h-4 bg-slate-200 dark:bg-border-dark rounded"></div>
                                         </td>
                                     </tr>
                                 ))
                             ) : paginatedGroups.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500 dark:text-text-secondary">
+                                    <td colSpan={7} className="px-6 py-8 text-center text-slate-500 dark:text-text-secondary">
                                         {t('No auth groups found')}
                                     </td>
                                 </tr>
@@ -380,6 +482,22 @@ export function AdminAuthGroups() {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary font-mono">
                                             {group.rate_limit.toLocaleString()}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary">
+                                            <span
+                                                className="truncate"
+                                                title={
+                                                    group.user_group_id.length === 0
+                                                        ? t('All Groups')
+                                                        : group.user_group_id
+                                                              .map((id) => userGroups.find((g) => g.id === id)?.name || `#${id}`)
+                                                              .join(', ')
+                                                }
+                                            >
+                                                {group.user_group_id.length === 0
+                                                    ? t('All Groups')
+                                                    : t('Selected {{count}}', { count: group.user_group_id.length })}
+                                            </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary font-mono text-xs">
                                             {new Date(group.created_at).toLocaleDateString(locale)}
@@ -462,6 +580,7 @@ export function AdminAuthGroups() {
                 <AuthGroupModal
                     title={t('New Authentication Group')}
                     initialData={buildFormData()}
+                    userGroups={userGroups}
                     submitting={submitting}
                     onClose={() => setCreateOpen(false)}
                     onSubmit={handleCreate}
@@ -471,6 +590,7 @@ export function AdminAuthGroups() {
                 <AuthGroupModal
                     title={t('Edit Authentication Group #{{id}}', { id: editGroup.id })}
                     initialData={buildFormData(editGroup)}
+                    userGroups={userGroups}
                     submitting={submitting}
                     onClose={() => setEditGroup(null)}
                     onSubmit={handleUpdate}

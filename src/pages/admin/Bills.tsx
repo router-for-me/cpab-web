@@ -11,6 +11,7 @@ interface Bill {
     id: number;
     plan_id: number;
     user_id: number;
+    user_group_id: number[];
     period_type: number;
     amount: number;
     period_start: string;
@@ -272,6 +273,7 @@ export function AdminBills() {
                                     <th className="px-6 py-4">{t('ID')}</th>
                                     <th className="px-6 py-4">{t('User ID')}</th>
                                     <th className="px-6 py-4">{t('Plan ID')}</th>
+                                    <th className="px-6 py-4">{t('User Group')}</th>
                                     <th className="px-6 py-4">{t('Period')}</th>
                                     <th className="px-6 py-4">{t('Amount')}</th>
                                     <th className="px-6 py-4">{t('Quota Used')}</th>
@@ -286,14 +288,14 @@ export function AdminBills() {
                                 {loading ? (
                                     [...Array(5)].map((_, i) => (
                                         <tr key={i}>
-                                            <td colSpan={11} className="px-6 py-4">
+                                            <td colSpan={12} className="px-6 py-4">
                                                 <div className="animate-pulse h-4 bg-slate-200 dark:bg-border-dark rounded"></div>
                                             </td>
                                         </tr>
                                     ))
                                 ) : paginatedBills.length === 0 ? (
                                     <tr>
-                                        <td colSpan={11} className="px-6 py-8 text-center text-slate-500 dark:text-text-secondary">
+                                        <td colSpan={12} className="px-6 py-8 text-center text-slate-500 dark:text-text-secondary">
                                             {t('No bills found')}
                                         </td>
                                     </tr>
@@ -316,6 +318,20 @@ export function AdminBills() {
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary">
                                                     {bill.plan_id}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary">
+                                                    <span
+                                                        className="block truncate"
+                                                        title={
+                                                            bill.user_group_id.length === 0
+                                                                ? t('No Group')
+                                                                : bill.user_group_id.map((id) => `#${id}`).join(', ')
+                                                        }
+                                                    >
+                                                        {bill.user_group_id.length === 0
+                                                            ? t('No Group')
+                                                            : t('Selected {{count}}', { count: bill.user_group_id.length })}
+                                                    </span>
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary">
                                                     {t(PERIOD_MAP[bill.period_type] || 'Unknown')}
