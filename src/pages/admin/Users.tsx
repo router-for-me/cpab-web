@@ -26,6 +26,16 @@ interface UsersResponse {
     users: User[];
 }
 
+interface CreateFormData {
+    username: string;
+    email: string;
+    password: string;
+    user_group_id: number[];
+    daily_max_usage: string;
+    rate_limit: string;
+    disabled: boolean;
+}
+
 interface EditFormData {
     username: string;
     email: string;
@@ -139,6 +149,292 @@ function SearchableDropdownMenu({
             </div>
         </>,
         document.body
+    );
+}
+
+function CreateUserModal({
+    groups,
+    canAssignGroup,
+    onClose,
+    onCreated,
+}: {
+    groups: GroupOption[];
+    canAssignGroup: boolean;
+    onClose: () => void;
+    onCreated: (user: User) => void;
+}) {
+    const { t } = useTranslation();
+    const [formData, setFormData] = useState<CreateFormData>({
+        username: '',
+        email: '',
+        password: '',
+        user_group_id: [],
+        daily_max_usage: '0',
+        rate_limit: '0',
+        disabled: false,
+    });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [showPassword, setShowPassword] = useState(false);
+    const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+    const [groupSearch, setGroupSearch] = useState('');
+    const [groupBtnWidth, setGroupBtnWidth] = useState<number | undefined>(undefined);
+
+    useEffect(() => {
+        const allOptions = [t('No Group'), ...groups.map((g) => `${g.name} #${g.id}`)];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+            let maxWidth = 0;
+            for (const opt of allOptions) {
+                const width = ctx.measureText(opt).width;
+                if (width > maxWidth) maxWidth = width;
+            }
+            setGroupBtnWidth(Math.ceil(maxWidth) + 76);
+        }
+    }, [groups, t]);
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value, type, checked } = e.target;
+        setFormData((prev) => ({
+            ...prev,
+            [name]: type === 'checkbox' ? checked : value,
+        }));
+        setError(null);
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setError(null);
+
+        try {
+            const response = await apiFetchAdmin<{ id: number; username: string; email: string; rate_limit: number }>('/v0/admin/users', {
+                method: 'POST',
+                body: JSON.stringify({
+                    username: formData.username.trim(),
+                    email: formData.email.trim(),
+                    password: formData.password,
+                    rate_limit: Number.parseInt(formData.rate_limit, 10) || 0,
+                }),
+            });
+
+            const newUser: User = {
+                id: response.id,
+                username: response.username,
+                email: response.email,
+                user_group_id: formData.user_group_id,
+                bill_user_group_id: [],
+                daily_max_usage: Number.parseFloat(formData.daily_max_usage) || 0,
+                rate_limit: response.rate_limit,
+                active: true,
+                disabled: formData.disabled,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            };
+            onCreated(newUser);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Create failed');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+            <div className="relative bg-white dark:bg-surface-dark rounded-xl border border-gray-200 dark:border-border-dark shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-border-dark flex items-center justify-between shrink-0">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                        {t('Create User')}
+                    </h3>
+                    <button
+                        onClick={onClose}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-border-dark transition-colors"
+                    >
+                        <Icon name="close" size={20} />
+                    </button>
+                </div>
+
+                <form id="admin-user-create-form" onSubmit={handleSubmit} className="p-6 flex-1 overflow-y-auto">
+                    {error && (
+                        <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-sm">
+                            {error}
+                        </div>
+                    )}
+
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                {t('Username')}
+                            </label>
+                            <input
+                                type="text"
+                                name="username"
+                                value={formData.username}
+                                onChange={handleInputChange}
+                                disabled={loading}
+                                className="w-full px-4 py-2.5 text-sm border border-gray-200 dark:border-border-dark rounded-lg bg-white dark:bg-background-dark text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                {t('Email')}
+                            </label>
+                            <input
+                                type="email"
+                                name="email"
+                                value={formData.email}
+                                onChange={handleInputChange}
+                                disabled={loading}
+                                className="w-full px-4 py-2.5 text-sm border border-gray-200 dark:border-border-dark rounded-lg bg-white dark:bg-background-dark text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                {t('Password')}
+                            </label>
+                            <div className="relative">
+                                <input
+                                    type={showPassword ? 'text' : 'password'}
+                                    name="password"
+                                    value={formData.password}
+                                    onChange={handleInputChange}
+                                    disabled={loading}
+                                    placeholder={t('Enter password')}
+                                    className="w-full px-4 py-2.5 pr-11 text-sm border border-gray-200 dark:border-border-dark rounded-lg bg-white dark:bg-background-dark text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"
+                                >
+                                    <Icon
+                                        name={showPassword ? 'visibility_off' : 'visibility'}
+                                        size={18}
+                                    />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                {t('User Group')}
+                            </label>
+                            {canAssignGroup ? (
+                                <div className="relative">
+                                    <button
+                                        type="button"
+                                        id="create-user-group-dropdown-btn"
+                                        onClick={() => setGroupMenuOpen(!groupMenuOpen)}
+                                        className="flex items-center justify-between gap-2 w-full bg-white dark:bg-background-dark border border-gray-200 dark:border-border-dark text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary focus:border-primary px-4 py-2.5"
+                                        style={groupBtnWidth ? { minWidth: groupBtnWidth } : undefined}
+                                    >
+                                        <span className="truncate">
+                                            {formData.user_group_id.length === 0
+                                                ? t('No Group')
+                                                : t('Selected {{count}}', { count: formData.user_group_id.length })}
+                                        </span>
+                                        <Icon name={groupMenuOpen ? 'expand_less' : 'expand_more'} size={18} />
+                                    </button>
+                                    {groupMenuOpen && (
+                                        <MultiGroupDropdownMenu
+                                            anchorId="create-user-group-dropdown-btn"
+                                            groups={groups}
+                                            selectedIds={formData.user_group_id}
+                                            search={groupSearch}
+                                            emptyLabel={t('No Group')}
+                                            menuWidth={groupBtnWidth}
+                                            onSearchChange={setGroupSearch}
+                                            onToggle={(value) => {
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    user_group_id: toggleGroupId(prev.user_group_id, value),
+                                                }));
+                                            }}
+                                            onClear={() => setFormData((prev) => ({ ...prev, user_group_id: [] }))}
+                                            onClose={() => setGroupMenuOpen(false)}
+                                        />
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="w-full px-4 py-2.5 text-sm border border-gray-200 dark:border-border-dark rounded-lg bg-gray-50 dark:bg-background-dark text-slate-500 dark:text-text-secondary">
+                                    {t('No Group')}
+                                </div>
+                            )}
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                {t('Daily Max Usage ($)')}
+                            </label>
+                            <input
+                                type="number"
+                                name="daily_max_usage"
+                                value={formData.daily_max_usage}
+                                onChange={handleInputChange}
+                                disabled={loading}
+                                step="0.01"
+                                className="w-full px-4 py-2.5 text-sm border border-gray-200 dark:border-border-dark rounded-lg bg-white dark:bg-background-dark text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                {t('Rate limit')}
+                            </label>
+                            <input
+                                type="number"
+                                name="rate_limit"
+                                value={formData.rate_limit}
+                                onChange={handleInputChange}
+                                disabled={loading}
+                                step="1"
+                                className="w-full px-4 py-2.5 text-sm border border-gray-200 dark:border-border-dark rounded-lg bg-white dark:bg-background-dark text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50"
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-3 pt-2">
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    name="disabled"
+                                    checked={formData.disabled}
+                                    onChange={handleInputChange}
+                                    disabled={loading}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 dark:peer-focus:ring-primary/30 rounded-full peer dark:bg-border-dark peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-red-500"></div>
+                            </label>
+                            <span className="text-sm text-slate-700 dark:text-slate-300">
+                                {t('Disabled')}
+                            </span>
+                        </div>
+                    </div>
+                </form>
+                <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-border-dark shrink-0">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        disabled={loading}
+                        className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-background-dark border border-gray-200 dark:border-border-dark rounded-lg hover:bg-slate-50 dark:hover:bg-border-dark transition-colors disabled:opacity-50"
+                    >
+                        {t('Cancel')}
+                    </button>
+                    <button
+                        type="submit"
+                        form="admin-user-create-form"
+                        disabled={loading}
+                        className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-blue-600 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                    >
+                        {loading && <Icon name="progress_activity" size={16} className="animate-spin" />}
+                        {t('Create')}
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 }
 
@@ -463,6 +759,7 @@ export function AdminUsers() {
     const { t, i18n } = useTranslation();
     const { hasPermission } = useAdminPermissions();
     const canListUsers = hasPermission(buildAdminPermissionKey('GET', '/v0/admin/users'));
+    const canCreateUsers = hasPermission(buildAdminPermissionKey('POST', '/v0/admin/users'));
     const canUpdateUsers = hasPermission(buildAdminPermissionKey('PUT', '/v0/admin/users/:id'));
     const canDeleteUsers = hasPermission(buildAdminPermissionKey('DELETE', '/v0/admin/users/:id'));
     const canDisableUsers = hasPermission(buildAdminPermissionKey('POST', '/v0/admin/users/:id/disable'));
@@ -478,6 +775,7 @@ export function AdminUsers() {
     const [searchInput, setSearchInput] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [creatingUser, setCreatingUser] = useState(false);
     const [groups, setGroups] = useState<GroupOption[]>([]);
     const [groupFilterId, setGroupFilterId] = useState<number | null>(null);
     const [groupFilterOpen, setGroupFilterOpen] = useState(false);
@@ -562,6 +860,11 @@ export function AdminUsers() {
         setEditingUser(user);
     };
 
+    const handleCreateUser = (newUser: User) => {
+        setCreatingUser(false);
+        setUsers((prev) => [newUser, ...prev]);
+    };
+
     const handleEditSave = (updatedUser: User) => {
         setEditingUser(null);
         setUsers((prev) =>
@@ -640,6 +943,17 @@ export function AdminUsers() {
     return (
         <AdminDashboardLayout title={t('Users')} subtitle={t('Manage system users')}>
             <div className="space-y-6">
+                {canCreateUsers && (
+                    <div className="flex justify-end">
+                        <button
+                            onClick={() => setCreatingUser(true)}
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-blue-600 transition-colors font-medium"
+                        >
+                            <Icon name="add" size={18} />
+                            {t('New User')}
+                        </button>
+                    </div>
+                )}
                 <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white dark:bg-surface-dark p-3 rounded-xl border border-gray-200 dark:border-border-dark shadow-sm">
                     <div className="flex gap-3 w-full md:w-auto">
                         <div className="relative w-full md:w-96">
@@ -774,7 +1088,14 @@ export function AdminUsers() {
                                             >
                                                 {user.user_group_id.length === 0
                                                     ? t('No Group')
-                                                    : t('Selected {{count}}', { count: user.user_group_id.length })}
+                                                    : (() => {
+                                                          const names = user.user_group_id.map(
+                                                              (id) => groups.find((g) => g.id === id)?.name || `#${id}`
+                                                          );
+                                                          return names.length > 1
+                                                              ? `${names[0]}${t('And others')}`
+                                                              : names[0];
+                                                      })()}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-slate-600 dark:text-text-secondary">
@@ -790,7 +1111,14 @@ export function AdminUsers() {
                                             >
                                                 {user.bill_user_group_id.length === 0
                                                     ? t('No Group')
-                                                    : t('Selected {{count}}', { count: user.bill_user_group_id.length })}
+                                                    : (() => {
+                                                          const names = user.bill_user_group_id.map(
+                                                              (id) => groups.find((g) => g.id === id)?.name || `#${id}`
+                                                          );
+                                                          return names.length > 1
+                                                              ? `${names[0]}${t('And others')}`
+                                                              : names[0];
+                                                      })()}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
@@ -899,6 +1227,15 @@ export function AdminUsers() {
                     canChangePassword={canChangePassword}
                     onClose={() => setEditingUser(null)}
                     onSave={handleEditSave}
+                />
+            )}
+
+            {creatingUser && (
+                <CreateUserModal
+                    groups={groups}
+                    canAssignGroup={canListUserGroups}
+                    onClose={() => setCreatingUser(false)}
+                    onCreated={handleCreateUser}
                 />
             )}
         </AdminDashboardLayout>

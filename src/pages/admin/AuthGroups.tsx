@@ -66,21 +66,20 @@ function AuthGroupModal({ title, initialData, userGroups, submitting, onClose, o
     const [error, setError] = useState('');
     const [groupMenuOpen, setGroupMenuOpen] = useState(false);
     const [groupSearch, setGroupSearch] = useState('');
-    const [groupBtnWidth, setGroupBtnWidth] = useState<number | undefined>(undefined);
-
-    useEffect(() => {
+    const groupBtnWidth = useMemo(() => {
         const allOptions = [t('All Groups'), ...userGroups.map((g) => `${g.name} #${g.id}`)];
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-        if (ctx) {
-            ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
-            let maxWidth = 0;
-            for (const opt of allOptions) {
-                const width = ctx.measureText(opt).width;
-                if (width > maxWidth) maxWidth = width;
-            }
-            setGroupBtnWidth(Math.ceil(maxWidth) + 76);
+        if (!ctx) {
+            return undefined;
         }
+        ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+        let maxWidth = 0;
+        for (const opt of allOptions) {
+            const width = ctx.measureText(opt).width;
+            if (width > maxWidth) maxWidth = width;
+        }
+        return Math.ceil(maxWidth) + 76;
     }, [userGroups, t]);
 
     const handleSubmit = () => {

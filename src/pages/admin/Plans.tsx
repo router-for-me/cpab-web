@@ -397,7 +397,21 @@ function PlanModal({ title, initialData, userGroups, submitting, canListModelMap
     const [modelsDropdownOpen, setModelsDropdownOpen] = useState(false);
     const [userGroupMenuOpen, setUserGroupMenuOpen] = useState(false);
     const [userGroupSearch, setUserGroupSearch] = useState('');
-    const [userGroupBtnWidth, setUserGroupBtnWidth] = useState<number | undefined>(undefined);
+    const userGroupBtnWidth = useMemo(() => {
+        const allOptions = [t('No Group'), ...userGroups.map((g) => `${g.name} #${g.id}`)];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return undefined;
+        }
+        ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
+        let maxWidth = 0;
+        for (const opt of allOptions) {
+            const width = ctx.measureText(opt).width;
+            if (width > maxWidth) maxWidth = width;
+        }
+        return Math.ceil(maxWidth) + 72;
+    }, [userGroups, t]);
     const modelsButtonRef = useRef<HTMLButtonElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
     const visibleModels = useMemo(
@@ -407,21 +421,6 @@ function PlanModal({ title, initialData, userGroups, submitting, canListModelMap
     const availableModelMap = useMemo(() => {
         return new Map(visibleModels.map((option) => [option.key, option]));
     }, [visibleModels]);
-
-    useEffect(() => {
-        const allOptions = [t('No Group'), ...userGroups.map((g) => `${g.name} #${g.id}`)];
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-            ctx.font = '14px ui-sans-serif, system-ui, sans-serif';
-            let maxWidth = 0;
-            for (const opt of allOptions) {
-                const width = ctx.measureText(opt).width;
-                if (width > maxWidth) maxWidth = width;
-            }
-            setUserGroupBtnWidth(Math.ceil(maxWidth) + 72);
-        }
-    }, [userGroups, t]);
 
     const parseNumber = (value: string, label: string, integer = false) => {
         const trimmed = value.trim();
