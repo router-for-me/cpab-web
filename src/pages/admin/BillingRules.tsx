@@ -62,6 +62,7 @@ interface BillingRuleModalProps {
     authGroups: GroupOption[];
     userGroups: GroupOption[];
     canListProviderApiKeys: boolean;
+    canLoadModelReferencePrice: boolean;
     submitting: boolean;
     onClose: () => void;
     onSubmit: (payload: Record<string, unknown>) => void;
@@ -94,6 +95,15 @@ interface GroupOption {
 
 interface ModelListResponse {
     models: string[];
+}
+
+interface ModelReferencePriceResponse {
+    provider: string;
+    model: string;
+    price_input_token: number | null;
+    price_output_token: number | null;
+    price_cache_create_token: number | null;
+    price_cache_read_token: number | null;
 }
 
 interface ProviderApiKeyOption {
@@ -261,12 +271,37 @@ function formatPrice(value: number | null): string {
     return `$${Number(value).toFixed(2)}`;
 }
 
+function inferReferenceProvider(modelName: string): string {
+    const name = modelName.toLowerCase();
+    if (name.includes('gpt')) {
+        return 'OpenAI';
+    }
+    if (name.includes('claude')) {
+        return 'Anthropic';
+    }
+    if (name.includes('gemini')) {
+        return 'Google';
+    }
+    if (name.includes('qwen')) {
+        return 'Alibaba';
+    }
+    return '';
+}
+
+function stringifyPrice(value: number | null | undefined): string {
+    if (value === null || value === undefined) {
+        return '';
+    }
+    return value.toString();
+}
+
 function BillingRuleModal({
     title,
     initialData,
     authGroups,
     userGroups,
     canListProviderApiKeys,
+    canLoadModelReferencePrice,
     submitting,
     onClose,
     onSubmit,
@@ -283,11 +318,56 @@ function BillingRuleModal({
     const [models, setModels] = useState<string[]>([]);
     const [loadingModels, setLoadingModels] = useState(false);
     const [apiKeyProviders, setApiKeyProviders] = useState<ProviderApiKeyOption[]>([]);
+    const priceRequestRef = useRef(0);
 
     const providerBtnRef = useRef<HTMLButtonElement>(null);
     const modelBtnRef = useRef<HTMLButtonElement>(null);
 
     const isPerRequest = formData.billing_type === 1;
+
+    const loadReferencePrice = useCallback(
+        async (modelName: string) => {
+            if (!canLoadModelReferencePrice) {
+                return;
+            }
+            const trimmed = modelName.trim();
+            if (!trimmed) {
+                return;
+            }
+            const providerName = inferReferenceProvider(trimmed);
+            const requestId = priceRequestRef.current + 1;
+            priceRequestRef.current = requestId;
+            const params = new URLSearchParams({ model_id: trimmed });
+            if (providerName) {
+                params.set('provider', providerName);
+            }
+            try {
+                const res = await apiFetchAdmin<ModelReferencePriceResponse>(
+                    `/v0/admin/model-references/price?${params.toString()}`
+                );
+                if (priceRequestRef.current !== requestId) {
+                    return;
+                }
+                setFormData((prev) => {
+                    if (prev.model !== trimmed) {
+                        return prev;
+                    }
+                    return {
+                        ...prev,
+                        price_input_token: stringifyPrice(res.price_input_token),
+                        price_output_token: stringifyPrice(res.price_output_token),
+                        price_cache_create_token: stringifyPrice(res.price_cache_create_token),
+                        price_cache_read_token: stringifyPrice(res.price_cache_read_token),
+                    };
+                });
+            } catch {
+                if (priceRequestRef.current !== requestId) {
+                    return;
+                }
+            }
+        },
+        [canLoadModelReferencePrice]
+    );
 
     useEffect(() => {
         if (!canListProviderApiKeys) {
@@ -632,6 +712,7 @@ function BillingRuleModal({
                                     selected={formData.model}
                                     onSelect={(val) => {
                                         setFormData((prev) => ({ ...prev, model: val }));
+                                        void loadReferencePrice(val);
                                         setModelDropdownOpen(false);
                                     }}
                                     onClose={() => setModelDropdownOpen(false)}
@@ -824,6 +905,9 @@ export function AdminBillingRules() {
     const canListUserGroups = hasPermission(buildAdminPermissionKey('GET', '/v0/admin/user-groups'));
     const canListProviderApiKeys = hasPermission(
         buildAdminPermissionKey('GET', '/v0/admin/provider-api-keys')
+    );
+    const canLoadModelReferencePrice = hasPermission(
+        buildAdminPermissionKey('GET', '/v0/admin/model-references/price')
     );
 
     const [rules, setRules] = useState<BillingRule[]>([]);
@@ -1182,6 +1266,7 @@ export function AdminBillingRules() {
                     authGroups={authGroups}
                     userGroups={userGroups}
                     canListProviderApiKeys={canListProviderApiKeys}
+                    canLoadModelReferencePrice={canLoadModelReferencePrice}
                     submitting={submitting}
                     onClose={() => setCreateOpen(false)}
                     onSubmit={handleCreate}
@@ -1194,6 +1279,7 @@ export function AdminBillingRules() {
                     authGroups={authGroups}
                     userGroups={userGroups}
                     canListProviderApiKeys={canListProviderApiKeys}
+                    canLoadModelReferencePrice={canLoadModelReferencePrice}
                     submitting={submitting}
                     onClose={() => setEditRule(null)}
                     onSubmit={handleUpdate}
