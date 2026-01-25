@@ -1786,7 +1786,7 @@ export function AdminAuthFiles() {
                                     </th>
                                     <th className="px-6 py-4 font-semibold tracking-wider">{t('Key')}</th>
                                     <th className="px-6 py-4 font-semibold tracking-wider">{t('Type')}</th>
-                                    <th className="px-6 py-4 font-semibold tracking-wider">{t('User Group')}</th>
+                                    <th className="px-6 py-4 font-semibold tracking-wider">{t('Auth Group')}</th>
                                     <th className="px-6 py-4 font-semibold tracking-wider">{t('Priority')}</th>
                                     <th className="px-6 py-4 font-semibold tracking-wider">{t('Rate limit')}</th>
                                     <th className="px-6 py-4 font-semibold tracking-wider">{t('Status')}</th>
@@ -2585,7 +2585,7 @@ export function AdminAuthFiles() {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                    {t('User Group')}
+                                    {t('Auth Group')}
                                 </label>
                                 {canListGroups ? (
                                     <div className="relative">
