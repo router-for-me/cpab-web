@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AdminDashboardLayout } from '../../components/admin/AdminDashboardLayout';
 import { AdminNoAccessCard } from '../../components/admin/AdminNoAccessCard';
@@ -176,6 +176,162 @@ function DropdownPortal({ anchorRef, options, selected, onSelect, onClose }: Dro
                         {opt.label}
                     </button>
                 ))}
+            </div>
+        </>,
+        document.body
+    );
+}
+
+interface FilterOption {
+    id: number | string;
+    name: string;
+}
+
+interface FilterMultiSelectProps {
+    anchorRef: React.RefObject<HTMLButtonElement | null>;
+    options: FilterOption[];
+    selected: (number | string)[];
+    onToggle: (value: number | string) => void;
+    onClear: () => void;
+    onClose: () => void;
+}
+
+function FilterMultiSelect({
+    anchorRef,
+    options,
+    selected,
+    onToggle,
+    onClear,
+    onClose,
+}: FilterMultiSelectProps) {
+    const { t } = useTranslation();
+    const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
+    const [search, setSearch] = useState('');
+    const menuRef = useRef<HTMLDivElement>(null);
+
+    const updatePosition = useCallback(() => {
+        if (anchorRef.current) {
+            const rect = anchorRef.current.getBoundingClientRect();
+            setPosition({
+                top: rect.bottom + 4,
+                left: rect.left,
+                width: Math.max(rect.width, 200),
+            });
+        }
+    }, [anchorRef]);
+
+    useLayoutEffect(() => {
+        updatePosition();
+    }, [updatePosition]);
+
+    useEffect(() => {
+        const handleMove = () => updatePosition();
+        window.addEventListener('scroll', handleMove, true);
+        window.addEventListener('resize', handleMove);
+        return () => {
+            window.removeEventListener('scroll', handleMove, true);
+            window.removeEventListener('resize', handleMove);
+        };
+    }, [updatePosition]);
+
+    useEffect(() => {
+        const handlePointerDown = (event: MouseEvent) => {
+            const target = event.target as Node | null;
+            if (!target) return;
+            if (menuRef.current && menuRef.current.contains(target)) return;
+            if (anchorRef.current && anchorRef.current.contains(target)) return;
+            onClose();
+        };
+        document.addEventListener('pointerdown', handlePointerDown);
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown);
+        };
+    }, [anchorRef, onClose]);
+
+    const filteredOptions = useMemo(() => {
+        const keyword = search.trim().toLowerCase();
+        if (!keyword) return options;
+        return options.filter((opt) => {
+            const idStr = String(opt.id);
+            return (
+                opt.name.toLowerCase().includes(keyword) ||
+                idStr.includes(keyword)
+            );
+        });
+    }, [options, search]);
+
+    return createPortal(
+        <>
+            <div className="fixed inset-0 z-40" onClick={onClose} />
+            <div
+                ref={menuRef}
+                className="fixed z-50 bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark rounded-lg shadow-lg overflow-hidden max-h-72"
+                style={{ top: position.top, left: position.left, width: position.width }}
+            >
+                <div className="px-3 py-2 border-b border-gray-200 dark:border-border-dark flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-500 dark:text-text-secondary">
+                        {t('Selected {{count}}', { count: selected.length })}
+                    </span>
+                    <button
+                        type="button"
+                        onClick={onClear}
+                        disabled={selected.length === 0}
+                        className="px-2 py-1 text-xs border border-gray-200 dark:border-border-dark rounded-md text-slate-600 dark:text-text-secondary hover:text-slate-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-background-dark transition-colors disabled:text-slate-400 disabled:cursor-not-allowed"
+                    >
+                        {t('Clear')}
+                    </button>
+                </div>
+                <div className="px-3 py-2 border-b border-gray-200 dark:border-border-dark">
+                    <div className="relative">
+                        <Icon
+                            name="search"
+                            size={16}
+                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        />
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder={t('Search...')}
+                            className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark rounded-lg text-slate-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        />
+                    </div>
+                </div>
+                <div className="max-h-48 overflow-y-auto">
+                    {filteredOptions.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-slate-500 dark:text-text-secondary">
+                            {t('No options found')}
+                        </div>
+                    ) : (
+                        filteredOptions.map((opt) => {
+                            const isSelected = selected.includes(opt.id);
+                            return (
+                                <button
+                                    key={opt.id}
+                                    type="button"
+                                    onClick={() => onToggle(opt.id)}
+                                    className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-background-dark transition-colors ${
+                                        isSelected
+                                            ? 'bg-gray-100 dark:bg-background-dark text-slate-900 dark:text-white font-medium'
+                                            : 'text-slate-900 dark:text-white'
+                                    }`}
+                                    title={opt.name}
+                                >
+                                    <span
+                                        className={`flex items-center justify-center h-4 w-4 rounded border ${
+                                            isSelected
+                                                ? 'border-primary text-primary bg-primary/10'
+                                                : 'border-gray-300 dark:border-border-dark text-transparent'
+                                        }`}
+                                    >
+                                        {isSelected && <Icon name="check" size={14} />}
+                                    </span>
+                                    <span className="truncate">{opt.name}</span>
+                                </button>
+                            );
+                        })
+                    )}
+                </div>
             </div>
         </>,
         document.body
@@ -1245,6 +1401,21 @@ export function AdminBillingRules() {
     const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const locale = i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US';
 
+    const [filterAuthGroupIds, setFilterAuthGroupIds] = useState<number[]>([]);
+    const [filterUserGroupIds, setFilterUserGroupIds] = useState<number[]>([]);
+    const [filterProviders, setFilterProviders] = useState<string[]>([]);
+    const [filterModel, setFilterModel] = useState('');
+    const [authGroupFilterOpen, setAuthGroupFilterOpen] = useState(false);
+    const [userGroupFilterOpen, setUserGroupFilterOpen] = useState(false);
+    const [providerFilterOpen, setProviderFilterOpen] = useState(false);
+    const authGroupFilterBtnRef = useRef<HTMLButtonElement>(null);
+    const userGroupFilterBtnRef = useRef<HTMLButtonElement>(null);
+    const providerFilterBtnRef = useRef<HTMLButtonElement>(null);
+
+    const providerFilterOptions = useMemo(() => {
+        return PROVIDER_OPTIONS.map((p) => ({ id: p.value, name: p.label }));
+    }, []);
+
     const showToast = useCallback((message: string) => {
         if (toastTimeoutRef.current) {
             clearTimeout(toastTimeoutRef.current);
@@ -1296,9 +1467,30 @@ export function AdminBillingRules() {
         fetchGroups();
     }, [fetchGroups]);
 
+    const filteredRules = useMemo(() => {
+        let result = rules;
+        if (filterAuthGroupIds.length > 0) {
+            result = result.filter((r) => filterAuthGroupIds.includes(r.auth_group_id));
+        }
+        if (filterUserGroupIds.length > 0) {
+            result = result.filter((r) => filterUserGroupIds.includes(r.user_group_id));
+        }
+        if (filterProviders.length > 0) {
+            result = result.filter((r) => filterProviders.includes(r.provider));
+        }
+        if (filterModel.trim()) {
+            const keyword = filterModel.trim().toLowerCase();
+            result = result.filter((r) => r.model.toLowerCase().includes(keyword));
+        }
+        return result;
+    }, [rules, filterAuthGroupIds, filterUserGroupIds, filterProviders, filterModel]);
 
-    const totalPages = Math.ceil(rules.length / PAGE_SIZE);
-    const paginatedRules = rules.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filterAuthGroupIds, filterUserGroupIds, filterProviders, filterModel]);
+
+    const totalPages = Math.ceil(filteredRules.length / PAGE_SIZE);
+    const paginatedRules = filteredRules.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
     const { tableScrollRef, handleTableScroll, showActionsDivider } = useStickyActionsDivider(
         paginatedRules.length,
@@ -1432,15 +1624,15 @@ export function AdminBillingRules() {
     };
 
     const pageInfo = useMemo(() => {
-        if (!rules.length) return t('No billing rules found');
+        if (!filteredRules.length) return t('No billing rules found');
         const start = (currentPage - 1) * PAGE_SIZE + 1;
-        const end = Math.min(currentPage * PAGE_SIZE, rules.length);
+        const end = Math.min(currentPage * PAGE_SIZE, filteredRules.length);
         return t('Showing {{from}} to {{to}} of {{total}} billing rules', {
             from: start,
             to: end,
-            total: rules.length,
+            total: filteredRules.length,
         });
-    }, [rules.length, currentPage, t]);
+    }, [filteredRules.length, currentPage, t]);
 
     if (!canListRules) {
         return (
@@ -1473,6 +1665,130 @@ export function AdminBillingRules() {
                         </button>
                     </div>
                 )}
+
+                <div className="bg-white dark:bg-surface-dark rounded-xl border border-gray-200 dark:border-border-dark p-3 shadow-sm">
+                    <div className="flex flex-col md:flex-row gap-3 items-start md:items-center">
+                        <div className="relative">
+                            <button
+                                ref={authGroupFilterBtnRef}
+                                type="button"
+                                onClick={() => setAuthGroupFilterOpen(!authGroupFilterOpen)}
+                                className="flex items-center justify-between gap-2 px-4 py-2 text-sm bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark rounded-lg text-slate-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap min-w-[140px]"
+                            >
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <Icon name="filter_list" size={18} />
+                                    <span className="whitespace-nowrap">
+                                        {filterAuthGroupIds.length > 0
+                                            ? t('Auth Group ({{count}})', { count: filterAuthGroupIds.length })
+                                            : t('Auth Group')}
+                                    </span>
+                                </div>
+                                <Icon name="expand_more" size={18} />
+                            </button>
+                            {authGroupFilterOpen && (
+                                <FilterMultiSelect
+                                    anchorRef={authGroupFilterBtnRef}
+                                    options={authGroups}
+                                    selected={filterAuthGroupIds}
+                                    onToggle={(id) => {
+                                        setFilterAuthGroupIds((prev) =>
+                                            prev.includes(id as number)
+                                                ? prev.filter((v) => v !== id)
+                                                : [...prev, id as number]
+                                        );
+                                    }}
+                                    onClear={() => setFilterAuthGroupIds([])}
+                                    onClose={() => setAuthGroupFilterOpen(false)}
+                                />
+                            )}
+                        </div>
+
+                        <div className="relative">
+                            <button
+                                ref={userGroupFilterBtnRef}
+                                type="button"
+                                onClick={() => setUserGroupFilterOpen(!userGroupFilterOpen)}
+                                className="flex items-center justify-between gap-2 px-4 py-2 text-sm bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark rounded-lg text-slate-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap min-w-[140px]"
+                            >
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <Icon name="filter_list" size={18} />
+                                    <span className="whitespace-nowrap">
+                                        {filterUserGroupIds.length > 0
+                                            ? t('User Group ({{count}})', { count: filterUserGroupIds.length })
+                                            : t('User Group')}
+                                    </span>
+                                </div>
+                                <Icon name="expand_more" size={18} />
+                            </button>
+                            {userGroupFilterOpen && (
+                                <FilterMultiSelect
+                                    anchorRef={userGroupFilterBtnRef}
+                                    options={userGroups}
+                                    selected={filterUserGroupIds}
+                                    onToggle={(id) => {
+                                        setFilterUserGroupIds((prev) =>
+                                            prev.includes(id as number)
+                                                ? prev.filter((v) => v !== id)
+                                                : [...prev, id as number]
+                                        );
+                                    }}
+                                    onClear={() => setFilterUserGroupIds([])}
+                                    onClose={() => setUserGroupFilterOpen(false)}
+                                />
+                            )}
+                        </div>
+
+                        <div className="relative">
+                            <button
+                                ref={providerFilterBtnRef}
+                                type="button"
+                                onClick={() => setProviderFilterOpen(!providerFilterOpen)}
+                                className="flex items-center justify-between gap-2 px-4 py-2 text-sm bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark rounded-lg text-slate-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap min-w-[140px]"
+                            >
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <Icon name="filter_list" size={18} />
+                                    <span className="whitespace-nowrap">
+                                        {filterProviders.length > 0
+                                            ? t('Provider ({{count}})', { count: filterProviders.length })
+                                            : t('Provider')}
+                                    </span>
+                                </div>
+                                <Icon name="expand_more" size={18} />
+                            </button>
+                            {providerFilterOpen && (
+                                <FilterMultiSelect
+                                    anchorRef={providerFilterBtnRef}
+                                    options={providerFilterOptions}
+                                    selected={filterProviders}
+                                    onToggle={(id) => {
+                                        setFilterProviders((prev) =>
+                                            prev.includes(id as string)
+                                                ? prev.filter((v) => v !== id)
+                                                : [...prev, id as string]
+                                        );
+                                    }}
+                                    onClear={() => setFilterProviders([])}
+                                    onClose={() => setProviderFilterOpen(false)}
+                                />
+                            )}
+                        </div>
+
+                        <div className="relative flex-1 min-w-[200px]">
+                            <input
+                                type="text"
+                                value={filterModel}
+                                onChange={(e) => setFilterModel(e.target.value)}
+                                placeholder={t('Filter by model...')}
+                                className="w-full px-4 py-2 text-sm bg-gray-50 dark:bg-background-dark border border-gray-200 dark:border-border-dark rounded-lg text-slate-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                            />
+                            <Icon
+                                name="search"
+                                size={18}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                            />
+                        </div>
+                    </div>
+                </div>
 
                 <div className="bg-white dark:bg-surface-dark rounded-xl border border-gray-200 dark:border-border-dark shadow-sm overflow-hidden">
                     <div ref={tableScrollRef} className="overflow-x-auto" onScroll={handleTableScroll}>
