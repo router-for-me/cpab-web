@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AdminDashboardLayout } from '../../components/admin/AdminDashboardLayout';
 import { AdminNoAccessCard } from '../../components/admin/AdminNoAccessCard';
@@ -756,6 +756,220 @@ function EditUserModal({
     );
 }
 
+interface UserApiKey {
+    id: number;
+    name: string;
+    key: string;
+    key_prefix: string;
+    active: boolean;
+    expires_at: string | null;
+    revoked_at: string | null;
+    last_used_at: string | null;
+    created_at: string;
+}
+
+interface UserApiKeysResponse {
+    api_keys: UserApiKey[];
+}
+
+function UserApiKeysModal({
+    user,
+    canCreate,
+    onClose,
+}: {
+    user: User;
+    canCreate: boolean;
+    onClose: () => void;
+}) {
+    const { t, i18n } = useTranslation();
+    const locale = i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US';
+    const [apiKeys, setApiKeys] = useState<UserApiKey[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [creating, setCreating] = useState(false);
+    const [newKeyToken, setNewKeyToken] = useState<string | null>(null);
+    const [copied, setCopied] = useState(false);
+    const [copiedKeyId, setCopiedKeyId] = useState<number | null>(null);
+    const autoCreatedRef = useRef(false);
+
+    const fetchApiKeys = useCallback(async () => {
+        setLoading(true);
+        try {
+            const res = await apiFetchAdmin<UserApiKeysResponse>(`/v0/admin/users/${user.id}/api-keys`);
+            const keys = res.api_keys || [];
+            if (keys.length === 0 && canCreate && !autoCreatedRef.current) {
+                autoCreatedRef.current = true;
+                const createRes = await apiFetchAdmin<{ id: number; name: string; token: string }>(
+                    `/v0/admin/users/${user.id}/api-keys`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ name: `Auto-${Date.now()}` }),
+                    }
+                );
+                setNewKeyToken(createRes.token);
+                const refreshRes = await apiFetchAdmin<UserApiKeysResponse>(`/v0/admin/users/${user.id}/api-keys`);
+                setApiKeys(refreshRes.api_keys || []);
+            } else {
+                setApiKeys(keys);
+            }
+        } catch (err) {
+            console.error('Failed to fetch user api keys:', err);
+        } finally {
+            setLoading(false);
+        }
+    }, [user.id, canCreate]);
+
+    useEffect(() => {
+        fetchApiKeys();
+    }, [fetchApiKeys]);
+
+    const handleCreate = async () => {
+        setCreating(true);
+        try {
+            const res = await apiFetchAdmin<{ id: number; name: string; token: string }>(
+                `/v0/admin/users/${user.id}/api-keys`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({ name: `Auto-${Date.now()}` }),
+                }
+            );
+            setNewKeyToken(res.token);
+            fetchApiKeys();
+        } catch (err) {
+            console.error('Failed to create api key:', err);
+            alert(t('Failed to create API key'));
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    const handleCopy = async () => {
+        if (newKeyToken) {
+            await navigator.clipboard.writeText(newKeyToken);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
+    const handleCopyKeyPrefix = async (keyId: number, key: string) => {
+        await navigator.clipboard.writeText(key);
+        setCopiedKeyId(keyId);
+        setTimeout(() => setCopiedKeyId(null), 2000);
+    };
+
+    const formatDate = (dateStr: string) => new Date(dateStr).toLocaleString(locale);
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+            <div className="relative bg-white dark:bg-surface-dark rounded-xl border border-gray-200 dark:border-border-dark shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-border-dark flex items-center justify-between shrink-0">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                        {t('API Keys for {{username}}', { username: user.username })}
+                    </h3>
+                    <button
+                        onClick={onClose}
+                        className="inline-flex h-8 w-8 items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded transition-colors"
+                    >
+                        <Icon name="close" />
+                    </button>
+                </div>
+
+                {newKeyToken && (
+                    <div className="px-6 py-4 bg-emerald-50 dark:bg-emerald-900/20 border-b border-emerald-200 dark:border-emerald-800">
+                        <p className="text-sm text-emerald-700 dark:text-emerald-400 mb-2">
+                            {t("API key created. Copy it now as you won't be able to see it again.")}
+                        </p>
+                        <div className="flex items-center gap-2 p-3 bg-white dark:bg-background-dark rounded-lg border border-emerald-200 dark:border-emerald-800">
+                            <code className="flex-1 font-mono text-sm text-slate-900 dark:text-white break-all">
+                                {newKeyToken}
+                            </code>
+                            <button
+                                onClick={handleCopy}
+                                className="p-2 text-gray-500 hover:text-primary transition-colors"
+                            >
+                                <Icon name={copied ? 'check' : 'content_copy'} size={18} />
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                <div className="flex-1 overflow-y-auto p-6">
+                    {loading ? (
+                        <div className="flex items-center justify-center py-8">
+                            <Icon name="progress_activity" size={24} className="animate-spin text-primary" />
+                        </div>
+                    ) : apiKeys.length === 0 ? (
+                        <div className="text-center py-8">
+                            <Icon name="vpn_key" size={48} className="text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+                            <p className="text-slate-500 dark:text-text-secondary">
+                                {t('No API keys for this user')}
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {apiKeys.map((key) => (
+                                <div
+                                    key={key.id}
+                                    className="p-4 bg-gray-50 dark:bg-background-dark rounded-lg border border-gray-200 dark:border-border-dark"
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="font-medium text-slate-900 dark:text-white">
+                                            {key.name}
+                                        </span>
+                                        <span
+                                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                                key.revoked_at
+                                                    ? 'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400'
+                                                    : key.active
+                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
+                                                    : 'bg-gray-100 text-gray-700 dark:bg-gray-500/10 dark:text-gray-400'
+                                            }`}
+                                        >
+                                            {key.revoked_at ? t('Revoked') : key.active ? t('Active') : t('Inactive')}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-text-secondary font-mono">
+                                        <span>{key.key_prefix}</span>
+                                        <button
+                                            onClick={() => handleCopyKeyPrefix(key.id, key.key)}
+                                            className="p-1 text-gray-400 hover:text-primary transition-colors"
+                                            title={t('Copy')}
+                                        >
+                                            <Icon name={copiedKeyId === key.id ? 'check' : 'content_copy'} size={14} />
+                                        </button>
+                                    </div>
+                                    <div className="mt-2 text-xs text-slate-500 dark:text-text-secondary">
+                                        {t('Created')}: {formatDate(key.created_at)}
+                                        {key.last_used_at && (
+                                            <span className="ml-4">
+                                                {t('Last used')}: {formatDate(key.last_used_at)}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {canCreate && (
+                    <div className="px-6 py-4 border-t border-gray-200 dark:border-border-dark shrink-0">
+                        <button
+                            onClick={handleCreate}
+                            disabled={creating}
+                            className="w-full py-2.5 bg-primary hover:bg-blue-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                            {creating && <Icon name="progress_activity" size={16} className="animate-spin" />}
+                            <Icon name="add" size={18} />
+                            {t('Create API Key')}
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 export function AdminUsers() {
     const { t, i18n } = useTranslation();
     const { hasPermission } = useAdminPermissions();
@@ -769,6 +983,8 @@ export function AdminUsers() {
         buildAdminPermissionKey('PUT', '/v0/admin/users/:id/password')
     );
     const canListUserGroups = hasPermission(buildAdminPermissionKey('GET', '/v0/admin/user-groups'));
+    const canListUserApiKeys = hasPermission(buildAdminPermissionKey('GET', '/v0/admin/users/:id/api-keys'));
+    const canCreateUserApiKeys = hasPermission(buildAdminPermissionKey('POST', '/v0/admin/users/:id/api-keys'));
 
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
@@ -782,6 +998,7 @@ export function AdminUsers() {
     const [groupFilterOpen, setGroupFilterOpen] = useState(false);
     const [groupFilterSearch, setGroupFilterSearch] = useState('');
     const [groupFilterBtnWidth, setGroupFilterBtnWidth] = useState<number | undefined>(undefined);
+    const [apiKeyModalUser, setApiKeyModalUser] = useState<User | null>(null);
     const locale = i18n.language === 'zh-CN' ? 'zh-CN' : 'en-US';
 
     const fetchUsers = useCallback(
@@ -1166,6 +1383,15 @@ export function AdminUsers() {
                                                         <Icon name="edit" size={18} />
                                                     </button>
                                                 )}
+                                                {(canListUserApiKeys || canCreateUserApiKeys) && (
+                                                    <button
+                                                        onClick={() => setApiKeyModalUser(user)}
+                                                        className="p-2 text-gray-400 hover:text-primary hover:bg-gray-100 dark:hover:bg-background-dark rounded-lg transition-colors"
+                                                        title={t('API Keys')}
+                                                    >
+                                                        <Icon name="vpn_key" size={18} />
+                                                    </button>
+                                                )}
                                                 {(user.disabled ? canEnableUsers : canDisableUsers) && (
                                                     <button
                                                         onClick={() => handleToggleDisable(user)}
@@ -1252,6 +1478,14 @@ export function AdminUsers() {
                     canAssignGroup={canListUserGroups}
                     onClose={() => setCreatingUser(false)}
                     onCreated={handleCreateUser}
+                />
+            )}
+
+            {apiKeyModalUser && (
+                <UserApiKeysModal
+                    user={apiKeyModalUser}
+                    canCreate={canCreateUserApiKeys}
+                    onClose={() => setApiKeyModalUser(null)}
                 />
             )}
         </AdminDashboardLayout>
